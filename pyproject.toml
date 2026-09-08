@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cheb-ar"
+version = "0.1.0"
+description = "Chebyshev-accelerated Arnoldi bit-flip-rate solver for driven, dissipative full-ATS systems (JAX + dynamiqs, GPU-only)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "jax==0.10.2",
+    "jaxlib==0.10.2",
+    "diffrax==0.7.2",
+    "matplotlib",
+    "dynamiqs @ git+https://github.com/TheoMalas-Danze/dynamiqs.git@b52cb66152713966038c7b1025251a6eb4600d3d",
+]
+
+[project.optional-dependencies]
+dev = ["nbstripout"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

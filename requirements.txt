@@ -1,9 +1,4 @@
-numpy
-scipy
-jax==0.10.2 #0.10.2
-jaxlib==0.10.2 #0.10.2
-diffrax==0.7.2
-matplotlib
-#-e /home/tmalasda/Dev/dynamiqs
-dynamiqs @ git+https://github.com/TheoMalas-Danze/dynamiqs.git@b52cb66152713966038c7b1025251a6eb4600d3d
-#nbstripout
+# Dependencies are declared in pyproject.toml; install the repo itself:
+-e .
+# notebook-output stripping filter (see .gitattributes); run `nbstripout --install` once per clone
+nbstripout

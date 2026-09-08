@@ -10,9 +10,11 @@ the model and the solver stay decoupled.
 
 Typical use
 -----------
->>> from cheb_ar import build_ats_hamiltonian, ChebAr
+>>> from cheb_ar import ChebAr
+>>> # model builders (e.g. the ATS Hamiltonian) live outside the solver;
+>>> # they will be collected in ``cheb_ar.models``
 >>> H, jump_ops, T_block, _ = build_ats_hamiltonian(alpha_sq=8.5)
->>> solver = ChebAr(H, jump_ops, n_a=20, n_b=11, T_block=T_block, cheb_degree=6)
+>>> solver = ChebAr(H, jump_ops, T_block, dims=(20, 11), cheb_degree=6)
 >>> x0 = solver.make_x0(seed=0)
 >>>
 >>> # 1. first estimation: plain Arnoldi of P (no filtering)
@@ -39,16 +41,9 @@ from scipy.special import jv
 
 jax.config.update("jax_enable_x64", True)
 
-#import sys
-#sys.path.insert(0, "/home/tmalasda/Dev/dynamiqs")
 import dynamiqs as dq
 
 dq.set_precision("double")
-
-print(dq.__file__)
-#assert (
-#    dq.__file__ == "/home/tmalasda/Dev/dynamiqs/dynamiqs/__init__.py"
-#), "Unexpected dynamiqs install; check sys.path."
 
 # Dtypes used throughout (double precision).
 WANTED_TYPE_COMPLEX = jnp.complex128
