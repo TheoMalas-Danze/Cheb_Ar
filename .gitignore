@@ -1,1 +1,16 @@
+# Python build/runtime artifacts
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Cluster job logs
 *log*/
+
+# Simulation outputs (large JSON results, etc.)
+results/
+
+# Local archive of pre-merge code, kept out of version control
+Archive/
