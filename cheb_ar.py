@@ -40,18 +40,19 @@ from scipy.special import jv
 jax.config.update("jax_enable_x64", True)
 
 import sys
-sys.path.insert(0, "/home/tmalasda/Dev/dynamiqs")
+sys.path.insert(0, "/home/tmalasda/dynamiqs")
 import dynamiqs as dq
 
 dq.set_precision("double")
 
 assert (
-    dq.__file__ == "/home/tmalasda/Dev/dynamiqs/dynamiqs/__init__.py"
+    dq.__file__ == "/home/tmalasda/dynamiqs/dynamiqs/__init__.py"
 ), "Unexpected dynamiqs install; check sys.path."
 
 # Dtypes used throughout (double precision).
 WANTED_TYPE_COMPLEX = jnp.complex128
 WANTED_TYPE_REAL = jnp.float64
+
 
 class ChebAr:
     """Chebyshev-Arnoldi iteration on a vectorized Lindbladian propagator.
@@ -66,18 +67,12 @@ class ChebAr:
         Hamiltonian (possibly time dependent) of the master equation.
     jump_ops : list
         Lindblad jump operators.
+    n_a, n_b : int
+        Fock truncations of the two modes; ``N = n_a*n_b`` is the Hilbert dim
+        and ``dim = N*N`` the Liouville (vectorized) dim.
     T_block : float
         Duration of one propagation block (sets ``tsave = [0, T_block]`` and
         converts eigenvalues to rates).
-    dims : tuple of int, optional
-        Per-mode Hilbert-space dimensions of the composite system (Fock
-        truncations, spin multiplicities, ...). The total Hilbert dimension
-        is ``N = prod(dims)`` and the Liouville (vectorized) dimension is
-        ``dim = N*N``. This is the only piece of system-specific information
-        ``ChebAr`` needs, and it supports an arbitrary number of subsystems
-        (not just the two-mode ``(n_a, n_b)`` case). If omitted, ``ChebAr``
-        tries to read ``Ham.dims`` itself (this works whenever ``Ham`` was
-        built with ``dq.tensor``/``dq.asqarray`` and carries that metadata).
     cheb_degree : int
         Degree of the Chebyshev filtering polynomial.
     rtol, atol : float
@@ -92,10 +87,9 @@ class ChebAr:
         self,
         Ham,
         jump_ops,
+        n_a,
+        n_b,
         T_block,
-        jump_ops_LdL=None,
-        output_phase=None,
-        dims=None,
         cheb_degree=6,
         rtol=1e-9,
         atol=1e-10,
@@ -105,27 +99,16 @@ class ChebAr:
         if require_gpu and not any(d.platform == "gpu" for d in jax.devices()):
             raise RuntimeError("JAX is not using a GPU.")
 
-        # --- Hilbert-space bookkeeping: the only system-dependent input ---
-        if dims is None:
-            try:
-                dims = tuple(Ham.dims)
-            except AttributeError as exc:
-                raise ValueError(
-                    "`dims` was not provided and could not be inferred from "
-                    "`Ham` (no `.dims` attribute). Pass the per-mode "
-                    "Hilbert-space dimensions explicitly, "
-                    "e.g. dims=(n_a, n_b) or dims=(n,) for a single mode."
-                ) from exc
-        self.dims = tuple(int(d) for d in dims)
-        self.N = int(np.prod(self.dims))
-        self.dim = self.N * self.N
-
-        # --- Lindbladian ---
+        # --- Lindbladian + dimensions ---
         self.Ham = Ham
         self.jump_ops = jump_ops
-        self.jump_ops_LdL = jump_ops_LdL
-        self.output_phase = output_phase
+        self.n_a = n_a
+        self.n_b = n_b
         self.cheb_degree = cheb_degree
+
+        self.N = n_a * n_b
+        self.dim = self.N * self.N
+
         self.T_block = T_block
         self.tsave = jnp.array([0.0, T_block], dtype=WANTED_TYPE_REAL)
 
@@ -146,6 +129,7 @@ class ChebAr:
     def _build_helpers(self):
         """Build the jitted ``normalize`` and ``project_trace_zero_vec``."""
         NN = self.N
+
         # vectorized identity, used to project out the trace
         id_vec = dq.vectorize(dq.eye(NN)).to_jax().reshape(-1)
         self.id_vec = id_vec
@@ -189,43 +173,22 @@ class ChebAr:
     # ------------------------------------------------------------------ #
     def _build_propagator(self):
         """Build the jitted projected propagator ``propagate_block_projected``."""
-        dims = self.dims
+        n_a, n_b = self.n_a, self.n_b
         Ham = self.Ham
         jump_ops = self.jump_ops
-        jump_ops_LdL = self.jump_ops_LdL
         tsave = self.tsave
         method = self.method
         project = self.project_trace_zero_vec
-        phase = self.output_phase
 
         @jax.jit
         def propagate_block_projected(rho_vec):
             rho_vec = project(rho_vec)
             rho_flat = dq.unvectorize(dq.asqarray(rho_vec[:, None]))
-            rho_0 = dq.asqarray(dq.to_jax(rho_flat), dims=dims)
-            if jump_ops_LdL is not None:
-                res = dq.mesolve_fast(
-                    Ham,
-                    jump_ops,
-                    jump_ops_LdL,
-                    rho_0,
-                    tsave,
-                    method=method,
-                    options=dq.Options(assume_hermitian=False),
-                )
-            else:
-                res = dq.mesolve(
-                        Ham,
-                        jump_ops,
-                        rho_0,
-                        tsave,
-                        method=method,
-                        options=dq.Options(assume_hermitian=False),
-                    )
-            rho_final = res.states[-1].to_jax()
-            if phase is not None:
-                rho_final = phase[:, None] * rho_final * jnp.conj(phase)[None, :]
-            rho_vec_final = rho_final.T.reshape(-1)
+            rho_0 = dq.asqarray(dq.to_jax(rho_flat), dims=(n_a, n_b))
+            res = dq.mesolve(
+                Ham, jump_ops, rho_0, tsave, assume_hermitian=False, method=method
+            )
+            rho_vec_final = dq.vectorize(res.states[-1]).to_jax().reshape(-1)
             return project(rho_vec_final)
 
         self.propagate_block_projected = propagate_block_projected
@@ -239,7 +202,7 @@ class ChebAr:
         Uses a numpy (CPU) propagator with column-major vectorization,
         mirroring the notebook. Returns ``(vals, vecs)``.
         """
-        dims = self.dims
+        n_a, n_b = self.n_a, self.n_b
         N = self.N
         Ham = self.Ham
         jump_ops = self.jump_ops
@@ -258,14 +221,8 @@ class ChebAr:
             rho_mat_np = vec_to_mat(rho_vec, N)
             tr = np.trace(rho_mat_np)
             rho_mat_np = rho_mat_np - (tr / N) * id_mat
-            rho_mat = dq.asqarray(rho_mat_np, dims=dims)
-            result = dq.mesolve(
-                Ham,
-                jump_ops,
-                rho_mat,
-                tsave,
-                options=dq.Options(assume_hermitian=False),
-            )
+            rho_mat = dq.asqarray(rho_mat_np, dims=(n_a, n_b))
+            result = dq.mesolve(Ham, jump_ops, rho_mat, tsave, assume_hermitian=False)
             rho_mat = (result.states[-1]).to_numpy()
             tr = np.trace(rho_mat)
             rho_vec = mat_to_vec(rho_mat)
@@ -304,10 +261,12 @@ class ChebAr:
 
         Q = jnp.zeros((m_arnoldi + 1, dim), dtype=WANTED_TYPE_COMPLEX)
         H = jnp.zeros((m_arnoldi + 1, m_arnoldi), dtype=WANTED_TYPE_COMPLEX)
+
         Q = Q.at[0].set(q0)
 
         def body(k, state):
             Q, H = state
+
             v = polynomial(Q[k])
 
             # Modified Gram-Schmidt, first pass
@@ -334,11 +293,17 @@ class ChebAr:
 
             beta = jnp.linalg.norm(v)
             H = H.at[k + 1, k].set(beta)
+
             q_next = v / beta
+            #q_next = project(q_next)
+            #q_next = normalize(q_next)
+
             Q = Q.at[k + 1].set(q_next)
+
             return Q, H
 
         Q, H = jax.lax.fori_loop(0, m_arnoldi, body, (Q, H))
+
         return Q, H
 
     def first_estimation(self, x0, m_arnoldi=40):
@@ -363,6 +328,7 @@ class ChebAr:
 
         The ellipse is centered on the real axis with semi-axes ``e`` (along Re)
         and ``b`` (along Im); ``(vertex_x, 0)`` is its right-hand vertex.
+
         Every returned point satisfies
 
             (Re - a)^2 / e^2 + Im^2 / b^2 <= 1 - margin,
@@ -377,6 +343,7 @@ class ChebAr:
         """
         re = ritz_vals.real
         im = ritz_vals.imag
+
         level = 1.0 - margin
         if level <= 0.0:
             raise ValueError(f"margin={margin} must be < 1.")
@@ -387,15 +354,19 @@ class ChebAr:
         # a < vertex_x so that (vertex_x, 0) is the right-hand vertex (e > 0)
         for a in np.linspace(-2, vertex_x - 1e-6, num_a):
             e = abs(vertex_x - a)
+
             # normalized horizontal coordinate of every point
             u = (re - a) / e
+
             # every point must keep horizontal clearance: u^2 < level so that
             # the level-set constraint below has a positive denominator
             if np.any(u**2 >= level):
                 continue
+
             # smallest semi-minor axis keeping every point within the
             # (1 - margin) level set: Im^2 / b^2 <= level - u^2
             b = np.sqrt(np.max(im**2 / (level - u**2)))
+
             area = e * b
             if area < best_area:
                 best_area = area
@@ -415,7 +386,7 @@ class ChebAr:
         """Locate the enclosing ellipse and build the Chebyshev filter.
 
         ``ritz_vals`` are the eigenvalues of the small Hessenberg from a plain
-        Arnoldi run on ``P`` (see :meth:`first_estimation`). The target Ritz
+        Arnoldi run on ``P`` (see :meth:`first_estimation`). The bit-flip Ritz
         value (largest real part) is deliberately left outside the ellipse and
         used as the target eigenvalue.
 
@@ -423,19 +394,19 @@ class ChebAr:
         ``self.chebyshev_filter`` plus the warm-startable Arnoldi.
         """
         ritz_vals = np.asarray(ritz_vals)
-        idx_target = np.argmax(ritz_vals.real)
-        ritz_target = ritz_vals[idx_target]
-        vertex_x = ritz_target - margin
 
-        # Exclude the target Ritz value: it sits right of the vertex and is
+        idx_bitflip = np.argmax(ritz_vals.real)
+        ritz_bitflip = ritz_vals[idx_bitflip]
+        vertex_x = ritz_bitflip - margin
+
+        # Exclude the bit-flip Ritz value: it sits right of the vertex and is
         # the target eigenvalue, not meant to be enclosed.
-        ritz_vals_enc = np.delete(ritz_vals, idx_target)
+        ritz_vals_enc = np.delete(ritz_vals, idx_bitflip)
 
         # Enclose every remaining Ritz value with a `margin` interior clearance.
         center_a, semi_re, semi_im = self.find_enclosing_ellipse(
             ritz_vals_enc, vertex_x, margin=margin, num_a=num_a
         )
-
         if not all(np.isfinite([center_a, semi_re, semi_im])):
             raise RuntimeError(
                 "find_enclosing_ellipse failed to find a valid ellipse "
@@ -461,16 +432,17 @@ class ChebAr:
             "center_a": center_a,
             "semi_re": semi_re,
             "semi_im": semi_im,
-            "ritz_target": ritz_target,
+            "ritz_bitflip": ritz_bitflip,
             "vertex_x": vertex_x,
             "margin": margin,
             "max_level": max_level,
             "ritz_vals_enc": ritz_vals_enc,
-            "idx_target": idx_target,
+            "idx_bitflip": idx_bitflip,
         }
 
         self._build_chebyshev_filter()
         return self.ellipse
+
 
     def optimal_polynomial_ellipse(self, m, semi_re, semi_im, lambda_1, degree):
         """Scalar optimal filtering polynomial for a spectrum in an ellipse.
@@ -478,6 +450,7 @@ class ChebAr:
         Returns a callable ``p(z)`` normalized so that ``p(lambda_1) = 1``.
         """
         d = np.sqrt((semi_re**2 - semi_im**2) + 0j)  # half-focal distance
+
         denom = self.chebyshev_complex(degree, (lambda_1 - m) / d)
         if abs(denom) < 1e-10:
             raise ValueError(
@@ -494,7 +467,7 @@ class ChebAr:
         """Build the jitted ``chebyshev_filter`` operator ``p(P)`` and Arnoldi.
 
         Uses the ellipse stored in ``self.ellipse``. The target eigenvalue for
-        the *operator* polynomial is ``lambda_1 = 1`` (the target eigenvalue
+        the *operator* polynomial is ``lambda_1 = 1`` (the bit-flip eigenvalue
         of the propagator sits at the edge of the unit disk).
         """
         if self.ellipse is None:
@@ -505,8 +478,8 @@ class ChebAr:
         semi_re = self.ellipse["semi_re"]
         semi_im = self.ellipse["semi_im"]
         d = np.sqrt((semi_re**2 - semi_im**2) + 0j)  # half-focal distance
-        lambda_1 = 1.0  # target eigenvalue of P (edge of the unit disk)
 
+        lambda_1 = 1.0  # bit-flip eigenvalue of P (edge of the unit disk)
         denom = self.chebyshev_complex(cheb_degree, (lambda_1 - m) / d)
         if abs(denom) < 1e-10:
             raise ValueError(
@@ -535,6 +508,7 @@ class ChebAr:
         @jax.jit
         def chebyshev_filter(x):
             x = project(x)
+
             if cheb_degree == 0:
                 return x / denom_j
 
@@ -549,6 +523,7 @@ class ChebAr:
                 return t1, t2
 
             t0, t1 = jax.lax.fori_loop(1, cheb_degree, body, (t0, t1))
+
             # normalize so that p(lambda_1) = 1
             return t1 / denom_j
 
@@ -563,7 +538,7 @@ class ChebAr:
         """Build the warm-startable Arnoldi factorization of ``p(P)``.
 
         The Ritz values of the small Hessenberg approximate ``p(mu)``; the
-        target eigenvalue ``mu`` is recovered each step by inverting the
+        bit-flip eigenvalue ``mu`` is recovered each step by inverting the
         Chebyshev relation, and stored in ``mu_list``.
         """
         dim = self.dim
@@ -580,6 +555,7 @@ class ChebAr:
             Q_old=None,
             H_old=None,
         ):
+            
             """Build or extend an Arnoldi factorization of ``polynomial``.
 
             Fresh start::
@@ -589,7 +565,8 @@ class ChebAr:
             Warm start::
 
                 arnoldi_hessenberg(x0, polynomial, m_new=60,
-                                   m_old=40, Q_old=Q, H_old=H)
+                                   m_old=40, Q_old=Q, H_old=H,
+                                   mu_list_old=mu_list)
             """
             Q = jnp.zeros((m_new + 1, dim), dtype=WANTED_TYPE_COMPLEX)
             H = jnp.zeros((m_new + 1, m_new), dtype=WANTED_TYPE_COMPLEX)
@@ -606,6 +583,7 @@ class ChebAr:
             # --- shared body ---
             def body(k, state):
                 Q, H = state
+
                 v = polynomial(Q[k])
 
                 def gs_body(j, inner_state):
@@ -632,74 +610,66 @@ class ChebAr:
                 beta = jnp.linalg.norm(v)
                 H = H.at[k + 1, k].set(beta)
                 Q = Q.at[k + 1].set(v / beta)
+
                 return Q, H
 
             Q, H = jax.lax.fori_loop(m_old, m_new, body, (Q, H))
+            
             return Q, H
 
         self._arnoldi_hessenberg = arnoldi_hessenberg
 
-    def recover_mu_list(self, H, m_new, *, m_old=0, mu_prev=None, warm_start=False):
+    def recover_mu_list(self, H, m_new, *, m_old=0, mu_prev=None, warm_start = False):
         """Extract mu_list from H by tracking Ritz values across steps by continuity."""
         mu_list = []
         if warm_start:
             target = mu_prev  # carries the last known good value for warm starts
+
             for k in range(m_old, m_new):
-                H_active = np.array(H[: k + 1, : k + 1])  # only the filled block
+                H_active = np.array(H[:k+1, :k+1])  # only the filled block
                 ritz_vals = np.linalg.eigvals(H_active)
+
                 if target is None:
                     # Cold start: argmax is acceptable once, on a small matrix
                     target = ritz_vals[np.argmax(ritz_vals.real)]
                 else:
                     # Track by continuity: nearest Ritz value to previous target
                     target = ritz_vals[np.argmin(np.abs(ritz_vals - target))]
+
                 mu = self._invert_chebyshev(target)
                 mu_list.append(mu)
         else:
             for k in range(m_old, m_new):
-                H_active = np.array(H[: k + 1, : k + 1])  # only the filled block
+                H_active = np.array(H[:k+1, :k+1])  # only the filled block
                 ritz_vals = np.linalg.eigvals(H_active)
                 target = ritz_vals[np.argmax(ritz_vals.real)]
                 mu = self._invert_chebyshev(target)
                 mu_list.append(mu)
-        return np.array(mu_list)
 
+        return np.array(mu_list)
+    
     def _invert_chebyshev(self, pkmu):
         """Invert p_k(mu) -> mu, selecting the physical branch."""
-        Tn_lambda1 = np.cosh(
-            self.cheb_degree
-            * np.arccosh((self._lambda_1 - self._m_ellipse) / self._d_ellipse + 0j)
-        )
+        Tn_lambda1 = np.cosh(self.cheb_degree * np.arccosh((self._lambda_1 - self._m_ellipse) / self._d_ellipse + 0j))
         C = pkmu * Tn_lambda1
         arccosh_C = np.arccosh(C + 0j)
-        candidates = np.array(
-            [
-                self._m_ellipse
-                + self._d_ellipse
-                * np.cosh((arccosh_C + 2j * np.pi * j) / self.cheb_degree)
-                for j in range(self.cheb_degree)
-            ]
-        )
+        candidates = np.array([
+            self._m_ellipse + self._d_ellipse * np.cosh(
+                (arccosh_C + 2j * np.pi * j) / self.cheb_degree
+            )
+            for j in range(self.cheb_degree)
+        ])
         # Select candidate closest to unit disk (|mu| <= 1)
         return candidates[np.argmin(np.abs(np.abs(candidates) - 1.0))]
 
     def arnoldi_hessenberg(
-        self,
-        x0,
-        polynomial,
-        m_new,
-        *,
-        check_last_mu=False,
-        unit_disk_tol=1e-6,
-        m_old=0,
-        Q_old=None,
-        H_old=None,
-        mu_list_old=None,
-        warm_start=False,
-    ):
+        self, x0, polynomial, m_new, *, check_last_mu=False, unit_disk_tol=1e-6,
+        m_old=0, Q_old=None, H_old=None, mu_list_old=None, warm_start = False
+        ):
+    
         """Public wrapper around the (jitted) filtered Arnoldi factorization.
 
-        After the factorization, checks that the recovered target eigenvalue
+        After the factorization, checks that the recovered bit-flip eigenvalue
         ``mu_list[-1]`` lies inside the unit disk (it is an eigenvalue of a
         completely positive, trace-non-increasing propagator, so ``|mu| <= 1``).
         Raises ``ValueError`` if it falls outside by more than ``unit_disk_tol``.
@@ -708,15 +678,13 @@ class ChebAr:
             raise RuntimeError(
                 "Chebyshev filter not built. Call setup_chebyshev(...) first."
             )
-
         Q, H = self._arnoldi_hessenberg(
-            x0, polynomial, m_new, m_old=m_old, Q_old=Q_old, H_old=H_old
+            x0, polynomial, m_new,
+            m_old=m_old, Q_old=Q_old, H_old=H_old
         )
-
+        
         mu_prev = complex(mu_list_old[-1]) if mu_list_old is not None else None
-        mu_list_new = self.recover_mu_list(
-            H, m_new, m_old=m_old, mu_prev=mu_prev, warm_start=warm_start
-        )
+        mu_list_new = self.recover_mu_list(H, m_new, m_old=m_old, mu_prev=mu_prev, warm_start=warm_start)
 
         # Reconstruct the full mu_list for the caller
         if mu_list_old is not None:
@@ -748,7 +716,8 @@ class ChebAr:
             complex plane (continuity-based selection, consistent with
             recover_mu_list). Overrides ``which``.
         """
-        dims = self.dims
+        n_a, n_b = self.n_a, self.n_b
+
         H_small = np.array(H[:m_arnoldi, :m_arnoldi])
         ritz_vals, ritz_vecs = np.linalg.eig(H_small)
 
@@ -763,11 +732,13 @@ class ChebAr:
 
         y = ritz_vecs[:, idx]
         x_ritz = Q[:m_arnoldi, :].T @ jnp.array(y, dtype=WANTED_TYPE_COMPLEX)
+
         x_ritz = self.project_trace_zero_vec(x_ritz)
         x_ritz = self.normalize(x_ritz)
 
         rho_ritz = dq.unvectorize(dq.asqarray(x_ritz[:, None]))
-        rho_ritz = dq.asqarray(dq.to_jax(rho_ritz), dims=dims)
+        rho_ritz = dq.asqarray(dq.to_jax(rho_ritz), dims=(n_a, n_b))
+
         return x_ritz, rho_ritz
 
     def residual_check(self, x_ritz):
@@ -786,5 +757,5 @@ class ChebAr:
         }
 
     def rate_from_mu(self, mu):
-        """Target rate ``-log(mu) / T_block`` from an eigenvalue ``mu``."""
+        """Bit-flip rate ``-log(mu) / T_block`` from an eigenvalue ``mu``."""
         return -jnp.log(mu) / self.T_block
