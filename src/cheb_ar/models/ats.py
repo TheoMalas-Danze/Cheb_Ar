@@ -132,7 +132,7 @@ def build_ats_hamiltonian(
         b_tot + dq.dag(b_tot),
     )
 
-    H_0 = w_a * a_tot @ dq.dag(a_tot) + w_b * b_tot @ dq.dag(b_tot)
+    H_0 = w_a * dq.dag(a_tot) @ a_tot + w_b * dq.dag(b_tot) @ b_tot
 
     Ham = H_0 + H_drive - 2 * E_J * jnp.sin(epsilon_p) * non_linear_op
 
