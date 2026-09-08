@@ -301,3 +301,21 @@ def build_ats_hamiltonian_interaction(
     output_phase = jnp.exp(-1j * jnp.array(lam) * T_block)
 
     return H_I, jump_ops_I, jump_ops_LdL_I, output_phase, V, T_block, params
+
+
+def transform_vectorized_state(x_vec, V_from, V_to):
+    """Re-express a vectorized operator between two interaction-frame bases.
+
+    ``x_vec`` is a column-major vectorized operator written in the eigenbasis
+    ``V_from`` (as returned by :func:`build_ats_hamiltonian_interaction`); the
+    result is the same operator written in the eigenbasis ``V_to``. Used to
+    warm-start a sweep point from the previous point's Ritz vector when the
+    static Hamiltonian — hence its eigenbasis — changes along the sweep
+    (e.g. an ``epsilon_p`` sweep; for an ``alpha_sq`` sweep the basis is
+    unchanged and this reduces to the identity).
+    """
+    N = V_from.shape[0]
+    rho = np.asarray(x_vec).reshape((N, N), order="F")
+    rho_lab = V_from @ rho @ V_from.conj().T
+    rho_to = V_to.conj().T @ rho_lab @ V_to
+    return jnp.array(rho_to.reshape(-1, order="F"))
