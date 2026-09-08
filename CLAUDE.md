@@ -75,4 +75,6 @@ mid-merge — move things opportunistically rather than all at once.
 
 - `docs/cheb_ar.md` — full reference for the `ChebAr` solver and the
   `eps_p` sweep script (algorithm, method table, hardcoded values to fix).
+- `src/cheb_ar/models/ats.py` — the three frame variants of the ATS builder
+  and the default experimental constants (single source of truth).
 - (Add one entry here per module/doc as the merge and cleanup progress.)

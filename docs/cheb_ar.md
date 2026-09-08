@@ -116,10 +116,11 @@ Q, H, mu_list = solver.arnoldi_hessenberg(
 rate = solver.rate_from_mu(mu_list[-1])
 ```
 
-> **Still to fix during cleanup:** `build_ats_hamiltonian` is not yet part of
-> the installable package — copies live in the `Cheb_Ar_old` sweep scripts and
-> the root notebooks. It (and the rotating-/interaction-frame variants) should
-> move to `src/cheb_ar/models/ats.py` as the single source of truth.
+> **Resolved:** `build_ats_hamiltonian` and its rotating-/interaction-frame
+> variants now live in `src/cheb_ar/models/ats.py` (single source of truth,
+> with the default experimental parameters as module constants). The copies in
+> the `Cheb_Ar_old` sweep scripts remain only until those scripts are replaced
+> by the unified CLI driver.
 
 ## 3. `cheb_ar_loop_eps_p.py` — sweep script
 
@@ -226,7 +227,8 @@ flag when refactoring.
   archived, untracked, in `Archive/cheb_ar.py`).
 - `src/cheb_ar/models/ats.py` — `build_ats_hamiltonian` and its
   rotating-/interaction-frame variants (moved out of the sweep scripts and
-  notebooks; resolves the note in §2). **To do.**
+  notebooks; resolves the note in §2). **Done** (plus `cheb_ar.io` for the
+  JSON helpers).
 - `scripts/sweep_eps_p.py` — the `__main__` sweep driver, rewritten around
   `build_ats_hamiltonian` + `ChebAr` from the two modules above, with the
   hardcoded paths/constants in §3 promoted to CLI arguments or a config file.
