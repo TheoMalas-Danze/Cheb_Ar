@@ -32,30 +32,30 @@ inconsistent conventions, and dead code are expected until cleanup is done.
   encode real experimental parameters (Josephson energies, phases, drive
   strengths), not arbitrary defaults.
 
-## Repo layout (target structure post-merge proposal)
+## Repo layout
 
 ```
-src/
-  solvers/      # model-agnostic numerics, e.g. cheb_ar.py (ChebAr class)
-  models/       # physical model builders, e.g. build_ats_hamiltonian
+src/cheb_ar/
+  solvers/      # model-agnostic numerics: cheb_ar.py (ChebAr class)
+  models/       # physical model builders: ats.py (3 frame variants + constants)
+  io.py         # JSON (de)serialization helpers for sweep results
 scripts/        # sweep/entry-point scripts (CLI-driven, no hardcoded paths)
+  cluster/      # OAR job files
 docs/           # reference docs per module/subsystem
 notebooks/      # exploratory notebooks (not imported by src/ or scripts/)
+Archive/        # untracked: pre-merge code kept locally, just in case
 ```
 
-If a file doesn't yet live where this layout says it should, that's expected
-mid-merge — move things opportunistically rather than all at once.
+Installable package: `pip install -e .` (that's what requirements.txt does).
 
 ## Known issues to watch for while cleaning up
 
-- **Hardcoded absolute paths**, e.g. `sys.path.insert(0, "/home/tmalasda/...")`
-  and cluster-specific output paths. Replace with a proper installed
-  dependency / relative path / CLI argument — flag any new ones you find.
-- **Duplicated physics constants**: some parameters (e.g. `w_a`, `kappa_b`,
-  `E_J`, `phi_a`, `phi_b`) are set as both module-level constants in sweep
-  scripts *and* as default arguments of model-builder functions like
-  `build_ats_hamiltonian`. These should have a single source of truth —
-  don't add a third copy.
+- **Hardcoded absolute paths** (e.g. `sys.path.insert(0, "/home/...")`,
+  cluster output paths) were removed in the merge cleanup — flag any new
+  ones you find; use CLI arguments instead.
+- **Physics constants** have their single source of truth in
+  `src/cheb_ar/models/ats.py` (module constants + builder defaults) —
+  don't introduce copies in scripts or notebooks.
 - **Docstrings can lag the actual module layout** 
 - GPU-guard `RuntimeError`s (`require_gpu=True`, explicit `jax.devices()`
   checks) are intentional safety checks, not leftover debug code — keep them

@@ -1,8 +1,8 @@
 # Chebyshev–Arnoldi bit-flip rate solver
 
 Documentation for `src/cheb_ar/solvers/cheb_ar.py` (the `ChebAr` solver) and
-`Cheb_Ar_old/loop_eps_p/cheb_ar_loop_eps_p.py` (a sweep script built on top of
-its older two-mode version, now kept in `Archive/cheb_ar.py`, untracked). Both
+`scripts/sweep_eps_p.py` (a sweep script built on top of it; see also
+`scripts/sweep_alpha.py` and `scripts/exact_diagonalization.py`). Both
 originate from `full_ATS/Chebyshev-Arnoldi.ipynb` and are GPU-only (JAX +
 `dynamiqs`); they cannot be executed on a CPU-only machine.
 
@@ -122,10 +122,15 @@ rate = solver.rate_from_mu(mu_list[-1])
 > the `Cheb_Ar_old` sweep scripts remain only until those scripts are replaced
 > by the unified CLI driver.
 
-## 3. `cheb_ar_loop_eps_p.py` — sweep script
+## 3. `scripts/sweep_eps_p.py` — sweep script
 
 Loads `ChebAr` and runs the full pipeline over a sweep of the pump strength
 `eps_p`, warm-starting each point from the Ritz vector of the previous one.
+Since the port to the interaction frame (`build_ats_hamiltonian_interaction`),
+the warm vector is re-expressed in each new point's eigenbasis via
+`transform_vectorized_state` before reuse. All constants below are now CLI
+arguments with the historical values as defaults; `--output` is required and
+`--gpu-id` sets `CUDA_VISIBLE_DEVICES` before jax is imported.
 
 ### `build_ats_hamiltonian(...)`
 
@@ -175,39 +180,16 @@ Recursive converter: JAX/NumPy arrays → nested lists, complex numbers →
   below).
 - Results are written as indented JSON to `OUTPUT_PATH`.
 
-### Hardcoded values to parameterize when cleaning up
+### Historical issues, resolved by the port
 
-These are fine for a one-off cluster run but should become CLI arguments,
-a config file, or at least named constants at the top of a `main()`, so the
-script is reusable without editing source:
-
-- `sys.path.insert(0, "/home/tmalasda/dev")` and, in `cheb_ar.py`,
-  `sys.path.insert(0, "/home/tmalasda/dynamiqs")` plus the matching
-  `assert dq.__file__ == ...` — both are absolute paths tied to one user's
-  cluster account and will break on any other machine/environment. Replace
-  with a normal installed package (`pip install -e .` / proper `dynamiqs`
-  dependency) rather than `sys.path` surgery.
-- `OUTPUT_PATH = "/home/tmalasda/output/Cheb_Ar/21_07_2026/..."` — absolute,
-  user- and date-specific output path.
-- Physical/numerical constants defined at module scope: `n_a`, `n_b`,
-  `cheb_degree`, `m_arnoldi_0`, `m_arnoldi_first`, `m_arnoldi_generic`,
-  `margin`, `alpha_sq`, `kappa_b_init`, `eps_p_init`, `E_J`, `phi_a`, `phi_b`,
-  `g_init`, `adiabatic_constant`. Several of these (e.g. `w_a`, `kappa_b`,
-  `E_J`, `phi_a`, `phi_b`) are *also* default arguments of
-  `build_ats_hamiltonian`, so the physical model parameters currently live in
-  two places that can silently drift out of sync.
-- `os.environ["CUDA_VISIBLE_DEVICES"] = "0"` is present but commented out —
-  worth turning into a real CLI flag (`--gpu-id`) instead of a comment to
-  edit by hand.
-
-### Known correctness note
-
-If `run_for_epsp` raises on the *first* sweep point, the `except` block
-appends an error dict but the code right after it (`print(f"rate_bf =
-{result['rate_bf']}")`, `results.append(result)`) still runs unconditionally
-and will raise a `NameError`/`KeyError` because `result` was never assigned.
-Worth wrapping that reporting block in the same `try` or guarding it with a
-flag when refactoring.
+The old `Cheb_Ar_old` versions of this script had `sys.path` surgery to a
+user-specific `dynamiqs` checkout (replaced by `pip install -e .`), a
+hardcoded `/home/.../OUTPUT_PATH` (now the required `--output` argument),
+physical constants duplicated between module scope and the builder defaults
+(now single-sourced in `cheb_ar.models.ats`), a commented-out
+`CUDA_VISIBLE_DEVICES` line (now `--gpu-id`), and a `NameError` when the
+*first* sweep point failed (now every point is wrapped uniformly, and the
+point after a failure restarts cold).
 
 ## 4. Dependencies
 
@@ -229,7 +211,8 @@ flag when refactoring.
   rotating-/interaction-frame variants (moved out of the sweep scripts and
   notebooks; resolves the note in §2). **Done** (plus `cheb_ar.io` for the
   JSON helpers).
-- `scripts/sweep_eps_p.py` — the `__main__` sweep driver, rewritten around
-  `build_ats_hamiltonian` + `ChebAr` from the two modules above, with the
-  hardcoded paths/constants in §3 promoted to CLI arguments or a config file.
-  **To do.**
+- `scripts/sweep_eps_p.py` — the sweep driver, rewritten around
+  `cheb_ar.models` + `ChebAr`, with the hardcoded paths/constants promoted
+  to CLI arguments. **Done** (interaction frame; plus `sweep_alpha.py`,
+  `exact_diagonalization.py` and the OAR job files in `scripts/cluster/`;
+  notebooks live in `notebooks/`).
