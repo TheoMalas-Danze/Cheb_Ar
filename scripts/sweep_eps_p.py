@@ -91,8 +91,50 @@ def main():
             x0 = transform_vectorized_state(x0, V_prev, V)
             warm_start = True
 
-        _, _, ritz_vals = solver.first_estimation(x0, m_arnoldi=args.m_arnoldi_0)
-        solver.setup_chebyshev(ritz_vals, margin=args.margin)
+        # First estimation + ellipse fit, with an escalation ladder on
+        # failure: rerun the estimation with m_arnoldi_0 * sqrt(2), then * 2,
+        # then keep that estimation and halve the margin down to 1e-5.
+        min_margin = 1e-5
+        m_schedule = [
+            args.m_arnoldi_0,
+            int(round(args.m_arnoldi_0 * np.sqrt(2))),
+            2 * args.m_arnoldi_0,
+        ]
+        m_arnoldi_0_used = None
+        margin_used = None
+        ritz_vals = None
+        last_exc = None
+        for m0 in m_schedule:
+            try:
+                _, _, ritz_vals = solver.first_estimation(x0, m_arnoldi=m0)
+                solver.setup_chebyshev(ritz_vals, margin=args.margin)
+                m_arnoldi_0_used, margin_used = m0, args.margin
+                break
+            except Exception as exc:
+                last_exc = exc
+                print(
+                    f"setup_chebyshev failed "
+                    f"(m_arnoldi_0={m0}, margin={args.margin:.3e}): {exc}"
+                )
+        if margin_used is None:
+            if ritz_vals is None:
+                raise last_exc  # even the first estimation itself failed
+            margin = args.margin / 2
+            while margin >= min_margin:
+                try:
+                    solver.setup_chebyshev(ritz_vals, margin=margin)
+                    m_arnoldi_0_used, margin_used = m_schedule[-1], margin
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    print(
+                        f"setup_chebyshev failed "
+                        f"(m_arnoldi_0={m_schedule[-1]}, margin={margin:.3e}): {exc}"
+                    )
+                    margin /= 2
+            if margin_used is None:
+                raise last_exc
+
         Q, H, mu_list = solver.arnoldi_hessenberg(
             x0, solver.chebyshev_filter, m_arnoldi, warm_start=warm_start
         )
@@ -109,7 +151,8 @@ def main():
             "n_a": args.n_a,
             "n_b": args.n_b,
             "cheb_degree": args.cheb_degree,
-            "m_arnoldi_0": args.m_arnoldi_0,
+            "m_arnoldi_0": m_arnoldi_0_used,
+            "margin": margin_used,
             "m_arnoldi": m_arnoldi,
             "rate_bf": to_jsonable(rate_bf),
             "x_ritz": to_jsonable(x_ritz),
