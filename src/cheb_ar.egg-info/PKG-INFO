@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: cheb-ar
+Version: 0.1.0
+Summary: Chebyshev-accelerated Arnoldi bit-flip-rate solver for driven, dissipative full-ATS systems (JAX + dynamiqs, GPU-only)
+Requires-Python: >=3.10
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: jax==0.10.2
+Requires-Dist: jaxlib==0.10.2
+Requires-Dist: diffrax==0.7.2
+Requires-Dist: matplotlib
+Requires-Dist: dynamiqs @ git+https://github.com/TheoMalas-Danze/dynamiqs.git@b52cb66152713966038c7b1025251a6eb4600d3d
+Provides-Extra: dev
+Requires-Dist: nbstripout; extra == "dev"

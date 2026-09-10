@@ -1,0 +1,10 @@
+numpy
+scipy
+jax==0.10.2
+jaxlib==0.10.2
+diffrax==0.7.2
+matplotlib
+dynamiqs @ git+https://github.com/TheoMalas-Danze/dynamiqs.git@b52cb66152713966038c7b1025251a6eb4600d3d
+
+[dev]
+nbstripout
