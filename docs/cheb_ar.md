@@ -1,10 +1,12 @@
 # Chebyshev–Arnoldi bit-flip rate solver
 
 Documentation for `src/cheb_ar/solvers/cheb_ar.py` (the `ChebAr` solver) and
-`scripts/sweep_eps_p.py` (a sweep script built on top of it; see also
-`scripts/sweep_alpha.py` and `scripts/exact_diagonalization.py`). Both
-originate from `full_ATS/Chebyshev-Arnoldi.ipynb` and are GPU-only (JAX +
-`dynamiqs`); they cannot be executed on a CPU-only machine.
+the sweep scripts built on top of it (`scripts/sweep_eps_p.py`,
+`scripts/sweep_alpha.py`, `scripts/exact_diagonalization.py`). All of it
+originates from the pre-merge notebook `Chebyshev-Arnoldi.ipynb` (kept
+untracked in `Archive/`) and is GPU-only (JAX + `dynamiqs`); it cannot be
+executed on a CPU-only machine. The ATS model builders are documented in
+`docs/models_ats.md`, the JSON helpers in `docs/io.md`.
 
 ## 1. What this code computes
 
@@ -100,7 +102,7 @@ solver = ChebAr(Ham, jump_ops, T_block, jump_ops_LdL=None, output_phase=None,
 
 ```python
 from cheb_ar import ChebAr
-# model builders live outside the solver (future cheb_ar.models)
+from cheb_ar.models.ats import build_ats_hamiltonian
 
 H, jump_ops, T_block, _ = build_ats_hamiltonian(alpha_sq=8.5)
 solver = ChebAr(H, jump_ops, T_block, dims=(20, 11), cheb_degree=6)
@@ -116,80 +118,71 @@ Q, H, mu_list = solver.arnoldi_hessenberg(
 rate = solver.rate_from_mu(mu_list[-1])
 ```
 
-> **Resolved:** `build_ats_hamiltonian` and its rotating-/interaction-frame
-> variants now live in `src/cheb_ar/models/ats.py` (single source of truth,
-> with the default experimental parameters as module constants). The copies in
-> the `Cheb_Ar_old` sweep scripts remain only until those scripts are replaced
-> by the unified CLI driver.
+> `build_ats_hamiltonian` and its rotating-/interaction-frame variants live in
+> `src/cheb_ar/models/ats.py` (single source of truth, with the default
+> experimental parameters as module constants; see `docs/models_ats.md`).
 
-## 3. `scripts/sweep_eps_p.py` — sweep script
+## 3. `scripts/` — sweep drivers
 
-Loads `ChebAr` and runs the full pipeline over a sweep of the pump strength
-`eps_p`, warm-starting each point from the Ritz vector of the previous one.
-Since the port to the interaction frame (`build_ats_hamiltonian_interaction`),
-the warm vector is re-expressed in each new point's eigenbasis via
-`transform_vectorized_state` before reuse. All constants below are now CLI
-arguments with the historical values as defaults; `--output` is required and
-`--gpu-id` sets `CUDA_VISIBLE_DEVICES` before jax is imported.
+All three scripts share the same conventions. Every physical/numerical
+constant is a CLI argument with the historical values as defaults; `--output`
+is required; `--gpu-id` sets `CUDA_VISIBLE_DEVICES` before jax is imported
+(which is why the heavy imports happen inside `main()`). The two Chebyshev
+sweeps run in the **interaction frame**
+(`build_ats_hamiltonian_interaction` + `mesolve_fast` via `jump_ops_LdL` +
+`output_phase`; see `docs/models_ats.md`). Each sweep point is wrapped in
+`try/except`: a failure is logged and appended as an `"error"` entry so one
+bad point doesn't kill the sweep. Results are written as indented JSON via
+`cheb_ar.io.to_jsonable` (see `docs/io.md`).
 
-### `build_ats_hamiltonian(...)`
+### `sweep_eps_p.py`
 
-Builds the driven full-ATS Lindbladian in the rotating frame (mirrors the
-Hamiltonian cells of the original notebook):
+Sweeps the pump strength `eps_p` (default `linspace(0.1, 1.1, 6)`) at fixed
+`alpha_sq`:
 
-- Two bosonic modes `a` (storage, dim `n_a`) and `b` (buffer, dim `n_b`).
-- Couplings `g`, `g2` derived from the pump amplitude `epsilon_p` and Josephson
-  parameters `E_J`, `phi_a`, `phi_b`.
-- Two-photon dissipation rate `kappa_2 = 4*g**2/kappa_b`, plus a single-photon
-  loss `kappa_1 = 0.005 * kappa_2`.
-- A rotating-frame drive `H_drive` at `w_b = 2*w_a` with amplitude
-  `epsilon_d = 2*alpha_sq*g2`, plus the non-linear Josephson term built from
-  `dq.sinm(phi_a_tot + phi_b_tot)`.
-- Returns `(Ham, jump_ops, T_block, params)` with `T_block` = one drive period
-  (`n_periods * 2*pi / w_a`) and `params` holding the derived quantities for
-  bookkeeping/output.
-
-### `run_for_epsp(eps_p, kappa_b, m_arnoldi, x0=None)`
-
-Runs one sweep point end to end: build the Hamiltonian → `ChebAr(...)` →
-`first_estimation` (fixed `m_arnoldi_0`) → `setup_chebyshev` → filtered
-`arnoldi_hessenberg` (`warm_start=True` if an `x0` was supplied) →
-`rate_from_mu` → `ritz_vector` → `residual_check`. Returns two dicts:
-`result_raw` (JAX/complex objects, for chaining warm starts in-process) and
-`result_json` (fully JSON-serializable, via `_to_jsonable`, for saving to
-disk).
-
-### `_to_jsonable(obj)`
-
-Recursive converter: JAX/NumPy arrays → nested lists, complex numbers →
-`{"real": ..., "imag": ...}`, NumPy scalars → plain Python `int`/`float`.
-
-### `__main__` sweep driver
-
-- Sweeps `eps_p` over `np.linspace(0.1, 1.1, 6)`.
 - `kappa_b` is *not* fixed across the sweep — it is rescaled at each point as
   `kappa_b = sin(eps_p)/sin(eps_p_init) * kappa_b_init` to keep the adiabatic
   ratio `kappa_b / g` roughly constant.
-- The first point uses `m_arnoldi_first` Krylov vectors and a fresh start
-  (`x0=None`); every subsequent point uses the smaller `m_arnoldi_generic` and
-  is warm-started from the previous point's `x_ritz` (`results_raw[idx_eps]`).
-- Failures are caught per-point (`try/except`), logged with the exception
-  type/message, and appended as an `"error"` entry so one bad point doesn't
-  kill the whole sweep — except the *first* point, where a failure currently
-  leaves `result` referencing the exception branch's undefined variable (see
-  below).
-- Results are written as indented JSON to `OUTPUT_PATH`.
+- The first point — and any point right after a failure — starts cold with
+  `--m-arnoldi-first` Krylov vectors; every other point uses the smaller
+  `--m-arnoldi` and is warm-started from the previous point's `x_ritz`
+  (`warm_start=True`, i.e. continuity-tracked mu recovery). The warm vector is
+  re-expressed in the new point's eigenbasis via `transform_vectorized_state`,
+  since the interaction-frame basis depends on `eps_p`. `--no-warm-start`
+  cold-starts every point.
 
-### Historical issues, resolved by the port
+### `sweep_alpha.py`
 
-The old `Cheb_Ar_old` versions of this script had `sys.path` surgery to a
-user-specific `dynamiqs` checkout (replaced by `pip install -e .`), a
-hardcoded `/home/.../OUTPUT_PATH` (now the required `--output` argument),
-physical constants duplicated between module scope and the builder defaults
-(now single-sourced in `cheb_ar.models.ats`), a commented-out
-`CUDA_VISIBLE_DEVICES` line (now `--gpu-id`), and a `NameError` when the
-*first* sweep point failed (now every point is wrapped uniformly, and the
-point after a failure restarts cold).
+Sweeps the cat size `alpha_sq` at fixed `eps_p` and fixed `kappa_b` (default:
+the model's `KAPPA_B`), same pipeline. Warm starting is optional and comes
+from a *previous results file* (`--warm-start-file`; its i-th `x_ritz` seeds
+the i-th point, with `warm_start=True`). The vectors are used as-is — the
+interaction-frame eigenbasis does not depend on `alpha_sq` — so the file must
+come from a run with the same `n_a`/`n_b`, ideally the same `eps_p`.
+
+### The ellipse-fit escalation ladder
+
+Both sweeps guard `first_estimation` + `setup_chebyshev` with the same
+escalation ladder (identical inline code in both scripts, per-script on
+purpose — no shared driver):
+
+1. Try `m_arnoldi_0`, then `round(m_arnoldi_0 * sqrt(2))`, then
+   `2 * m_arnoldi_0` Krylov vectors, each with the requested `--margin`.
+2. If the fit still fails, keep the last (largest) estimation and halve the
+   margin repeatedly, down to a floor of `1e-5`.
+3. If even the first estimation itself never succeeded, the point fails.
+
+The `m_arnoldi_0` and `margin` recorded in each result entry are the values
+**actually used**, not the CLI values.
+
+### `exact_diagonalization.py`
+
+Brute-force reference for small cats: sweeps `eps_p` × `alpha_sq` on a small
+Hilbert space (default `n_a=13`, `n_b=6`), builds the full one-period
+propagator with `dq.mepropagator` on the **rotating-frame** Lindbladian
+(`build_ats_hamiltonian_rotating`), diagonalizes it exactly, takes the
+second-largest-`|mu|` eigenvalue as the bit-flip eigenvalue, and converts via
+`-log(mu) / T_block`.
 
 ## 4. Dependencies
 
@@ -202,17 +195,14 @@ point after a failure restarts cold).
   `scipy.special.jv`).
 - `json` (sweep-script output only).
 
-## 5. Suggested placement in a reorganized repo
+## 5. Layout
 
-- `src/cheb_ar/solvers/cheb_ar.py` — the model-agnostic `ChebAr` class.
-  **Done** (installable via `pip install -e .`; the older two-mode version is
-  archived, untracked, in `Archive/cheb_ar.py`).
-- `src/cheb_ar/models/ats.py` — `build_ats_hamiltonian` and its
-  rotating-/interaction-frame variants (moved out of the sweep scripts and
-  notebooks; resolves the note in §2). **Done** (plus `cheb_ar.io` for the
-  JSON helpers).
-- `scripts/sweep_eps_p.py` — the sweep driver, rewritten around
-  `cheb_ar.models` + `ChebAr`, with the hardcoded paths/constants promoted
-  to CLI arguments. **Done** (interaction frame; plus `sweep_alpha.py`,
-  `exact_diagonalization.py` and the OAR job files in `scripts/cluster/`;
-  notebooks live in `notebooks/`).
+The reorganization sketched here during the merge is complete: the
+model-agnostic solver lives in `src/cheb_ar/solvers/cheb_ar.py`, the ATS
+builders and constants in `src/cheb_ar/models/ats.py` (`docs/models_ats.md`),
+the JSON helpers in `src/cheb_ar/io.py` (`docs/io.md`), and the CLI sweep
+drivers in `scripts/` with their OAR job files in `scripts/cluster/`. The GPU
+test notebooks — validated on the cluster — live in `tests/`; the pre-merge
+code is kept untracked in `Archive/`. The sweep scripts deliberately stay
+separate (no unified driver); when they diverge, `sweep_alpha.py` is aligned
+on `sweep_eps_p.py`.

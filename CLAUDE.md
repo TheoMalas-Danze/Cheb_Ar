@@ -42,7 +42,7 @@ src/cheb_ar/
 scripts/        # sweep/entry-point scripts (CLI-driven, no hardcoded paths)
   cluster/      # OAR job files
 docs/           # reference docs per module/subsystem
-notebooks/      # exploratory notebooks (not imported by src/ or scripts/)
+tests/          # GPU test notebooks, validated on the cluster (not imported by src/ or scripts/)
 Archive/        # untracked: pre-merge code kept locally, just in case
 ```
 
@@ -73,8 +73,10 @@ Installable package: `pip install -e .` (that's what requirements.txt does).
 
 ## Where to look for more detail
 
-- `docs/cheb_ar.md` — full reference for the `ChebAr` solver and the
-  `eps_p` sweep script (algorithm, method table, hardcoded values to fix).
-- `src/cheb_ar/models/ats.py` — the three frame variants of the ATS builder
-  and the default experimental constants (single source of truth).
-- (Add one entry here per module/doc as the merge and cleanup progress.)
+- `docs/cheb_ar.md` — full reference for the `ChebAr` solver and the sweep
+  scripts (algorithm, method table, ellipse-fit escalation ladder).
+- `docs/models_ats.md` — the three frame variants of the ATS builder in
+  `src/cheb_ar/models/ats.py` and the default experimental constants
+  (single source of truth).
+- `docs/io.md` — the JSON (de)serialization helpers in `src/cheb_ar/io.py`
+  and their round-trip caveats.
