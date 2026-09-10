@@ -55,6 +55,8 @@ def main():
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_id)
 
     # heavy imports only after CUDA_VISIBLE_DEVICES is set
+    import numpy as np
+
     from cheb_ar import ChebAr
     from cheb_ar.io import load_json, to_jsonable
     from cheb_ar.models.ats import KAPPA_B, build_ats_hamiltonian_interaction
@@ -78,11 +80,56 @@ def main():
 
         if x0 is None:
             x0 = solver.make_x0(seed=0)
+            warm_start = False
+        else:
+            warm_start = True
 
-        _, _, ritz_vals = solver.first_estimation(x0, m_arnoldi=args.m_arnoldi_0)
-        solver.setup_chebyshev(ritz_vals, margin=args.margin)
+        # First estimation + ellipse fit, with an escalation ladder on
+        # failure: rerun the estimation with m_arnoldi_0 * sqrt(2), then * 2,
+        # then keep that estimation and halve the margin down to 1e-5.
+        min_margin = 1e-5
+        m_schedule = [
+            args.m_arnoldi_0,
+            int(round(args.m_arnoldi_0 * np.sqrt(2))),
+            2 * args.m_arnoldi_0,
+        ]
+        m_arnoldi_0_used = None
+        margin_used = None
+        ritz_vals = None
+        last_exc = None
+        for m0 in m_schedule:
+            try:
+                _, _, ritz_vals = solver.first_estimation(x0, m_arnoldi=m0)
+                solver.setup_chebyshev(ritz_vals, margin=args.margin)
+                m_arnoldi_0_used, margin_used = m0, args.margin
+                break
+            except Exception as exc:
+                last_exc = exc
+                print(
+                    f"setup_chebyshev failed "
+                    f"(m_arnoldi_0={m0}, margin={args.margin:.3e}): {exc}"
+                )
+        if margin_used is None:
+            if ritz_vals is None:
+                raise last_exc  # even the first estimation itself failed
+            margin = args.margin / 2
+            while margin >= min_margin:
+                try:
+                    solver.setup_chebyshev(ritz_vals, margin=margin)
+                    m_arnoldi_0_used, margin_used = m_schedule[-1], margin
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    print(
+                        f"setup_chebyshev failed "
+                        f"(m_arnoldi_0={m_schedule[-1]}, margin={margin:.3e}): {exc}"
+                    )
+                    margin /= 2
+            if margin_used is None:
+                raise last_exc
+
         Q, H, mu_list = solver.arnoldi_hessenberg(
-            x0, solver.chebyshev_filter, args.m_arnoldi
+            x0, solver.chebyshev_filter, args.m_arnoldi, warm_start=warm_start
         )
 
         rate_bf = solver.rate_from_mu(mu_list[-1])
@@ -96,7 +143,8 @@ def main():
             "n_a": args.n_a,
             "n_b": args.n_b,
             "cheb_degree": args.cheb_degree,
-            "m_arnoldi_0": args.m_arnoldi_0,
+            "m_arnoldi_0": m_arnoldi_0_used,
+            "margin": margin_used,
             "m_arnoldi": args.m_arnoldi,
             "rate_bf": to_jsonable(rate_bf),
             "x_ritz": to_jsonable(x_ritz),
