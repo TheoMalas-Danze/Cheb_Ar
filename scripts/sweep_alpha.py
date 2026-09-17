@@ -1,28 +1,29 @@
 """Sweep the cat size ``alpha_sq`` at fixed ``eps_p``, interaction frame.
 
-Port of ``Cheb_Ar_old/loop_alpha_sq/cheb_ar_loop_alpha_sq.py`` to the
-installable package and the interaction-frame pipeline
-(``build_ats_hamiltonian_interaction`` + ``mesolve_fast`` + ``output_phase``).
-Same structure as the old script:
+**This is a cluster driver.** It runs *on* the anb-compute Ray cluster and fans
+the sweep out, one GPU task per ``alpha_sq``. Submit it from anb-dev with
+``scripts/cluster/submit.py sweep_alpha``; running it on a laptop does nothing
+useful, since it has no cluster connection.
 
-- ``eps_p`` and ``kappa_b`` are fixed across the sweep (the interaction-frame
-  eigenbasis does not depend on ``alpha_sq``, so warm vectors need no basis
-  rotation).
-- Optionally warm-starts each point from the ``x_ritz`` entries of a previous
-  results file (``--warm-start-file``, point ``i`` of that file seeds point
-  ``i`` of this sweep, like the old script). The vectors are used as-is, so
-  the file must come from a run with the same ``n_a``/``n_b``; ideally from
-  the same ``eps_p`` (same eigenbasis), otherwise they are merely a rough
-  initial guess.
-- Failures are caught per point and recorded as an ``"error"`` entry.
+The points are mutually independent here — ``eps_p`` and ``kappa_b`` are fixed,
+so the interaction-frame eigenbasis does not move and no point needs the
+previous one's answer. That is exactly the shape Ray wants: one job, N tasks,
+the autoscaler sizing the pool. (Contrast ``sweep_eps_p.py``, whose warm-start
+chain is inherently sequential.)
 
-Example:
-    python scripts/sweep_alpha.py --output results/cheb_ar_vs_alphasq_epsp_1.json
+Warm starts, if any, come from a previous run's results file (point ``i`` seeds
+point ``i``), read from ``gs://`` or a local path. The vectors are used as-is,
+so the file must come from a run with the same ``n_a``/``n_b``, ideally the same
+``eps_p``.
+
+Results are written to a GCS prefix: the job's own disk is destroyed when the
+job ends, so a local ``--output`` path would simply vanish.
 """
 
 import argparse
 import json
 import os
+import tempfile
 
 
 def parse_args():
@@ -41,154 +42,98 @@ def parse_args():
                    help="filtered Krylov size")
     p.add_argument("--margin", type=float, default=5e-3)
     p.add_argument("--warm-start-file", default=None,
-                   help="results JSON of a previous sweep; its i-th x_ritz "
-                        "seeds the i-th point of this sweep")
-    p.add_argument("--output", required=True, help="output JSON path")
-    p.add_argument("--gpu-id", default=None,
-                   help="sets CUDA_VISIBLE_DEVICES before importing jax")
+                   help="results JSON of a previous sweep (gs:// or local); "
+                        "its i-th x_ritz seeds the i-th point of this sweep")
+    p.add_argument("--output", required=True,
+                   help="destination for results.json, e.g. "
+                        "gs://anb-ray-results/cheb-ar/<run-id>/")
+    p.add_argument("--num-cpus", type=int, default=8,
+                   help="cpus per task (cap at 28: the driver takes one of 30)")
+    p.add_argument("--no-x-ritz", action="store_true",
+                   help="omit x_ritz from the results (much smaller output, "
+                        "but the run cannot then seed a warm start)")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
-    if args.gpu_id is not None:
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_id)
 
-    # heavy imports only after CUDA_VISIBLE_DEVICES is set
-    import numpy as np
+    from anb_compute import ray as acr
+    from cheb_ar.io import from_jsonable, to_jsonable
+    from cheb_ar.pipeline import solve_point_safe
 
-    from cheb_ar import ChebAr
-    from cheb_ar.io import load_json, to_jsonable
-    from cheb_ar.models.ats import KAPPA_B, build_ats_hamiltonian_interaction
+    kw = dict(
+        n_a=args.n_a,
+        n_b=args.n_b,
+        eps_p=args.eps_p,
+        kappa_b=args.kappa_b,
+        cheb_degree=args.cheb_degree,
+        m_arnoldi_0=args.m_arnoldi_0,
+        m_arnoldi=args.m_arnoldi,
+        margin=args.margin,
+        want_x_ritz=not args.no_x_ritz,
+    )
 
-    kappa_b = args.kappa_b if args.kappa_b is not None else KAPPA_B
-
-    def run_for_alphasq(alpha_sq, x0=None):
-        """Run the full pipeline for one value of ``alpha_sq``."""
-        (
-            H_I, jump_ops_I, jump_ops_LdL_I, output_phase, V, T_block, params,
-        ) = build_ats_hamiltonian_interaction(
-            n_a=args.n_a, n_b=args.n_b, alpha_sq=alpha_sq,
-            kappa_b=kappa_b, epsilon_p=args.eps_p,
-        )
-
-        solver = ChebAr(
-            H_I, jump_ops_I, T_block,
-            jump_ops_LdL=jump_ops_LdL_I, output_phase=output_phase,
-            dims=(args.n_a, args.n_b), cheb_degree=args.cheb_degree,
-        )
-
-        if x0 is None:
-            x0 = solver.make_x0(seed=0)
-            warm_start = False
-        else:
-            warm_start = True
-
-        # First estimation + ellipse fit, with an escalation ladder on
-        # failure: rerun the estimation with m_arnoldi_0 * sqrt(2), then * 2,
-        # then keep that estimation and halve the margin down to 1e-5.
-        min_margin = 1e-5
-        m_schedule = [
-            args.m_arnoldi_0,
-            int(round(args.m_arnoldi_0 * np.sqrt(2))),
-            2 * args.m_arnoldi_0,
-        ]
-        m_arnoldi_0_used = None
-        margin_used = None
-        ritz_vals = None
-        last_exc = None
-        for m0 in m_schedule:
-            try:
-                _, _, ritz_vals = solver.first_estimation(x0, m_arnoldi=m0)
-                solver.setup_chebyshev(ritz_vals, margin=args.margin)
-                m_arnoldi_0_used, margin_used = m0, args.margin
-                break
-            except Exception as exc:
-                last_exc = exc
-                print(
-                    f"setup_chebyshev failed "
-                    f"(m_arnoldi_0={m0}, margin={args.margin:.3e}): {exc}"
-                )
-        if margin_used is None:
-            if ritz_vals is None:
-                raise last_exc  # even the first estimation itself failed
-            margin = args.margin / 2
-            while margin >= min_margin:
-                try:
-                    solver.setup_chebyshev(ritz_vals, margin=margin)
-                    m_arnoldi_0_used, margin_used = m_schedule[-1], margin
-                    break
-                except Exception as exc:
-                    last_exc = exc
-                    print(
-                        f"setup_chebyshev failed "
-                        f"(m_arnoldi_0={m_schedule[-1]}, margin={margin:.3e}): {exc}"
-                    )
-                    margin /= 2
-            if margin_used is None:
-                raise last_exc
-
-        Q, H, mu_list = solver.arnoldi_hessenberg(
-            x0, solver.chebyshev_filter, args.m_arnoldi, warm_start=warm_start
-        )
-
-        rate_bf = solver.rate_from_mu(mu_list[-1])
-        x_ritz, _ = solver.ritz_vector(Q, H, args.m_arnoldi, target=mu_list[-1])
-        res = solver.residual_check(x_ritz)
-
-        return {
-            "alpha_sq": alpha_sq,
-            "eps_p": args.eps_p,
-            "kappa_b": kappa_b,
-            "n_a": args.n_a,
-            "n_b": args.n_b,
-            "cheb_degree": args.cheb_degree,
-            "m_arnoldi_0": m_arnoldi_0_used,
-            "margin": margin_used,
-            "m_arnoldi": args.m_arnoldi,
-            "rate_bf": to_jsonable(rate_bf),
-            "x_ritz": to_jsonable(x_ritz),
-            "res": to_jsonable(res),
-            "params": to_jsonable(params),
-        }
-
-    x_ritz_warm = None
+    # Optional warm start: point i of the previous run seeds point i of this one.
+    x_ritz_warm = []
     if args.warm_start_file is not None:
-        warm_data = load_json(args.warm_start_file)
-        x_ritz_warm = [d.get("x_ritz") for d in warm_data]
+        raw = acr.load_output(args.warm_start_file, loader=json.load, mode="r")
+        x_ritz_warm = [from_jsonable(d).get("x_ritz") for d in raw]
+        print(f"warm-start file: {len(x_ritz_warm)} vector(s)")
+
+    # One task per point. Resources are per task, so there is no worker count to
+    # choose: the autoscaler grows the gpu pool for whatever is pending.
+    refs = {}
+    for i, alpha_sq in enumerate(args.alpha_sq):
+        x0 = x_ritz_warm[i] if i < len(x_ritz_warm) else None
+        ref = acr.submit(solve_point_safe, alpha_sq=float(alpha_sq), x0=x0,
+                         num_gpus=1, num_cpus=args.num_cpus, **kw)
+        refs[ref] = float(alpha_sq)
+    print(f"submitted {len(refs)} task(s): alpha_sq = {list(refs.values())}")
+
+    # Consume as they land, so a slow point does not hide the finished ones.
+    # Deliberately ray.wait/ray.get rather than acr.as_completed: as_completed
+    # calls ray.get inside a generator, so a task that dies for an *infra*
+    # reason (node preempted, OOM, retries exhausted) would raise out of the
+    # loop and discard every point already collected. `solve_point_safe`
+    # handles its own numerical failures; this handles the rest.
+    import ray
 
     results = []
-    for i, alpha_sq in enumerate(args.alpha_sq):
-        x0 = None
-        if x_ritz_warm is not None and i < len(x_ritz_warm):
-            x0 = x_ritz_warm[i]
+    pending = list(refs)
+    while pending:
+        ready, pending = ray.wait(pending, num_returns=1)
+        ref = ready[0]
+        alpha_sq = refs[ref]
         try:
-            result = run_for_alphasq(alpha_sq, x0)
-        except Exception as exc:
-            print(f"alpha_sq = {alpha_sq} FAILED: {exc}")
+            result = ray.get(ref)
+        except Exception as exc:  # noqa: BLE001 - infra failure of one task
+            print(f"alpha_sq = {alpha_sq} LOST: {type(exc).__name__}: {exc}")
             results.append({
-                "alpha_sq": float(alpha_sq),
-                "eps_p": args.eps_p,
-                "kappa_b": kappa_b,
-                "n_a": args.n_a,
-                "n_b": args.n_b,
-                "cheb_degree": args.cheb_degree,
-                "m_arnoldi_0": args.m_arnoldi_0,
-                "m_arnoldi": args.m_arnoldi,
+                "alpha_sq": alpha_sq, "eps_p": args.eps_p, "n_a": args.n_a,
+                "n_b": args.n_b, "cheb_degree": args.cheb_degree,
+                "m_arnoldi_0": args.m_arnoldi_0, "m_arnoldi": args.m_arnoldi,
                 "error": f"{type(exc).__name__}: {exc}",
             })
             continue
-
-        print(f"alpha_sq = {alpha_sq}")
-        print(f"rate_bf  = {result['rate_bf']}")
-        print(f"res_rel  = {result['res']['res_rel']}")
+        if "error" in result:
+            print(f"alpha_sq = {alpha_sq} FAILED: {result['error']}")
+        else:
+            print(f"alpha_sq = {alpha_sq}  rate_bf = {result['rate_bf']}  "
+                  f"res_rel = {result['res']['res_rel']}  "
+                  f"({result['timings_s']['total']:.0f} s)")
         results.append(result)
 
-    out_dir = os.path.dirname(os.path.abspath(args.output))
-    os.makedirs(out_dir, exist_ok=True)
-    with open(args.output, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"Saved results to {args.output}")
+    results.sort(key=lambda d: d["alpha_sq"])
+
+    # The job's disk dies with the job, so stage locally then upload.
+    with tempfile.TemporaryDirectory() as tmp:
+        local = os.path.join(tmp, "results.json")
+        with open(local, "w") as f:
+            json.dump(to_jsonable(results), f, indent=2)
+        uri = args.output if args.output.endswith("/") else args.output + "/"
+        acr.save_output(local, uri)
+    print(f"saved {len(results)} point(s) to {uri}results.json")
 
 
 if __name__ == "__main__":
