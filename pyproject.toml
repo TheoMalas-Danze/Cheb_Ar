@@ -14,7 +14,10 @@ dependencies = [
     "jaxlib==0.10.2",
     "diffrax==0.7.2",
     "matplotlib",
-    "dynamiqs @ git+https://github.com/TheoMalas-Danze/dynamiqs.git@b52cb66152713966038c7b1025251a6eb4600d3d",
+    # Fork = upstream v0.3.6 + the `mesolve_fast` patch (precomputed L^dag L).
+    # Rebased off the older base so it no longer reverts 10 upstream commits;
+    # its solver options are flattened into kwargs to match v0.3.6's mesolve.
+    "dynamiqs @ git+https://github.com/TheoMalas-Danze/dynamiqs.git@af64c63df011d09633f158d06d5f5b3ee637cf9e",
 ]
 
 [project.optional-dependencies]

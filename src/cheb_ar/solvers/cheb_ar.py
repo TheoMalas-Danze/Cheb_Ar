@@ -207,17 +207,17 @@ class ChebAr:
                     rho_0,
                     tsave,
                     method=method,
-                    options=dq.Options(assume_hermitian=False),
+                    assume_hermitian=False,
                 )
             else:
                 res = dq.mesolve(
-                        Ham,
-                        jump_ops,
-                        rho_0,
-                        tsave,
-                        method=method,
-                        options=dq.Options(assume_hermitian=False),
-                    )
+                    Ham,
+                    jump_ops,
+                    rho_0,
+                    tsave,
+                    method=method,
+                    assume_hermitian=False,
+                )
             rho_final = res.states[-1].to_jax()
             if phase is not None:
                 rho_final = phase[:, None] * rho_final * jnp.conj(phase)[None, :]
@@ -260,7 +260,7 @@ class ChebAr:
                 jump_ops,
                 rho_mat,
                 tsave,
-                options=dq.Options(assume_hermitian=False),
+                assume_hermitian=False,
             )
             rho_mat = (result.states[-1]).to_numpy()
             tr = np.trace(rho_mat)
