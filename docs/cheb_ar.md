@@ -57,7 +57,7 @@ itself is *not* in this file (see §3).
 ```python
 solver = ChebAr(Ham, jump_ops, T_block, jump_ops_LdL=None, output_phase=None,
                 dims=None, cheb_degree=6, rtol=1e-9, atol=1e-10,
-                require_gpu=True)
+                rescale_filter=True, require_gpu=True)
 ```
 
 | Parameter | Meaning |
@@ -69,6 +69,7 @@ solver = ChebAr(Ham, jump_ops, T_block, jump_ops_LdL=None, output_phase=None,
 | `T_block` | duration of one propagation block (Floquet period); sets `tsave = [0, T_block]` and the rate normalization |
 | `cheb_degree` | degree of the Chebyshev filtering polynomial |
 | `rtol`, `atol` | `mesolve` integration tolerances |
+| `rescale_filter` | normalize the input of every propagator call inside the Chebyshev recurrence and scale the output back (exact, `P` is linear). The recurrence grows `\|t_k\|` geometrically, which moves the adaptive integrator from the `atol`-dominated regime of the unit-norm Krylov vectors into a much tighter `rtol`-dominated one — the first `mesolve` of a filter call is fast, the next `cheb_degree - 1` are not. Rescaling holds them all to the same effective tolerance as the unfiltered steps. This trades tolerance for speed: compare `mu` / `res_rel` against `rescale_filter=False` before relying on it |
 | `require_gpu` | raises `RuntimeError` at construction if no JAX GPU device is visible (set `False` for a slow CPU fallback) |
 
 ### Method reference

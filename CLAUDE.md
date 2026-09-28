@@ -75,6 +75,8 @@ Installable package: `pip install -e .` (that's what requirements.txt does).
 
 - `docs/cheb_ar.md` — full reference for the `ChebAr` solver and the sweep
   scripts (algorithm, method table, ellipse-fit escalation ladder).
+- `docs/arnoldi_no_cheb.md` — the unfiltered `ArnoldiLindblad` solver, the
+  reference check on `ChebAr`'s filtered result.
 - `docs/models_ats.md` — the three frame variants of the ATS builder in
   `src/cheb_ar/models/ats.py` and the default experimental constants
   (single source of truth).

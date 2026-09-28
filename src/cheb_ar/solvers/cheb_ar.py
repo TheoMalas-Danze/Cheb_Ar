@@ -78,6 +78,19 @@ class ChebAr:
         Degree of the Chebyshev filtering polynomial.
     rtol, atol : float
         ``mesolve`` integration tolerances for the jitted (jax) propagator.
+    rescale_filter : bool
+        If ``True`` (default), every propagator call inside the Chebyshev
+        recurrence is made on a unit-norm vector and scaled back afterwards
+        (``P`` is linear, so this is exact up to integrator error). The
+        recurrence grows ``|t_k|`` geometrically, which pushes the adaptive
+        integrator from the ``atol``-dominated regime the Krylov vectors live
+        in into a much tighter ``rtol``-dominated one: the first ``mesolve`` of
+        a filter call is fast, the remaining ``cheb_degree - 1`` are not.
+        Rescaling holds all of them to the same effective tolerance as the
+        unfiltered Arnoldi steps (the ``first_estimation`` and
+        ``ArnoldiLindblad`` regime). It is a tolerance trade, not a free
+        speedup: check ``mu`` and ``res_rel`` against ``rescale_filter=False``
+        before trusting a faster run.
     require_gpu : bool
         If ``True`` (default, matching the notebook), raise ``RuntimeError`` at
         construction unless JAX has a GPU device. Set ``False`` to allow a CPU
@@ -95,6 +108,7 @@ class ChebAr:
         cheb_degree=6,
         rtol=1e-9,
         atol=1e-10,
+        rescale_filter=True,
         require_gpu=True,
     ):
         # match the notebook: fail fast if JAX is not on a GPU
@@ -122,6 +136,7 @@ class ChebAr:
         self.jump_ops_LdL = jump_ops_LdL
         self.output_phase = output_phase
         self.cheb_degree = cheb_degree
+        self.rescale_filter = rescale_filter
         self.T_block = T_block
         self.tsave = jnp.array([0.0, T_block], dtype=WANTED_TYPE_REAL)
 
@@ -523,10 +538,23 @@ class ChebAr:
         propagate = self.propagate_block_projected
         project = self.project_trace_zero_vec
 
+        if self.rescale_filter:
+            # `t_k` grows like ((e+b)/d)^k along the recurrence, so without this
+            # the integrator's tolerance regime (atol- vs rtol-dominated) changes
+            # from one `mesolve` to the next. Normalize to the Krylov-vector
+            # scale first; P is linear, so scaling back is exact.
+            @jax.jit
+            def propagate_unit(v):
+                s = jnp.linalg.norm(v)
+                s = jnp.where(s > 0, s, 1.0)
+                return s * propagate(v / s)
+        else:
+            propagate_unit = propagate
+
         @jax.jit
         def scaled_apply(v):
             """Apply the shifted/scaled operator ``w = (P - m I) / d`` to ``v``."""
-            return (propagate(v) - m_j * v) / d_j
+            return (propagate_unit(v) - m_j * v) / d_j
 
         @jax.jit
         def chebyshev_filter(x):
