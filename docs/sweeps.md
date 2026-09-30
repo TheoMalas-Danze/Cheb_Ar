@@ -57,7 +57,8 @@ Sweeps `eps_p` (default `linspace(0.1, 1.1, 6)`) at fixed `alpha_sq`:
 - By default `kappa_b` is rescaled at each point as `kappa_b =
   sin(eps_p)/sin(eps_p_init) * kappa_b_init`, which keeps `kappa_b / g` — and,
   since `epsilon_d ∝ g`, also `epsilon_d / kappa_b` — exactly constant.
-  `--no-keep-adiabatic-ratio` (notebook: `KEEP_ADIABATIC_RATIO = False`) holds
+  `--no-keep-adiabatic-ratio` (notebooks `sweep_eps_p` and `sweep_alpha_eps_p`:
+  `KEEP_ADIABATIC_RATIO = False`) holds
   `kappa_b = kappa_b_init` instead. `--kappa-b-init` defaults to `ats.KAPPA_B`.
 - The first point, and any point right after a failure, starts cold with the
   larger Krylov size (`--m`, Krylov-Schur; `--m-arnoldi-first`, ChebAr); every
