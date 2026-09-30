@@ -54,9 +54,11 @@ not depend on `alpha_sq` — so they fan out, one task each.
 
 Sweeps `eps_p` (default `linspace(0.1, 1.1, 6)`) at fixed `alpha_sq`:
 
-- `kappa_b` is rescaled at each point as `kappa_b = sin(eps_p)/sin(eps_p_init)
-  * kappa_b_init`, which keeps `kappa_b / g` — and, since `epsilon_d ∝ g`, also
-  `epsilon_d / kappa_b` — exactly constant.
+- By default `kappa_b` is rescaled at each point as `kappa_b =
+  sin(eps_p)/sin(eps_p_init) * kappa_b_init`, which keeps `kappa_b / g` — and,
+  since `epsilon_d ∝ g`, also `epsilon_d / kappa_b` — exactly constant.
+  `--no-keep-adiabatic-ratio` (notebook: `KEEP_ADIABATIC_RATIO = False`) holds
+  `kappa_b = kappa_b_init` instead. `--kappa-b-init` defaults to `ats.KAPPA_B`.
 - The first point, and any point right after a failure, starts cold with the
   larger Krylov size (`--m`, Krylov-Schur; `--m-arnoldi-first`, ChebAr); every
   other point is warm-started from the previous point's `x_ritz`, rotated into
@@ -66,8 +68,6 @@ Sweeps `eps_p` (default `linspace(0.1, 1.1, 6)`) at fixed `alpha_sq`:
   15)`, sized for the first — hardest — point and held along the sweep), with
   the final block shortened as the gap opens (`n_blocks_auto`, down from the
   `--n-blocks-final` cap to what gives `1 - mu**n ~ --rq-resolution`).
-- `--kappa-b-init` defaults to `0.6 / 10.4`, **not** `ats.KAPPA_B = 5 / 10.4`
-  (historical; the notebooks use `ats.KAPPA_B`).
 
 ### ChebAr only: the ellipse-fit escalation ladder
 

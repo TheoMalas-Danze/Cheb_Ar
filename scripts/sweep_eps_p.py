@@ -22,8 +22,10 @@ runs one GPU task per point, in order, passing the warm vector along.
 the cold-start size, the points become independent, and they are submitted all
 at once. More GPU-seconds in total, much less wall clock.
 
-``kappa_b`` is rescaled at each point as ``sin(eps_p)/sin(eps_p_init) *
-kappa_b_init`` to keep the adiabatic ratio ``kappa_b / g`` constant.
+By default ``kappa_b`` is rescaled at each point as ``sin(eps_p)/sin(eps_p_init)
+* kappa_b_init`` to keep the adiabatic ratio ``kappa_b / g`` constant;
+``--no-keep-adiabatic-ratio`` holds ``kappa_b = kappa_b_init`` fixed instead.
+``kappa_b_init`` defaults to the model's ``ats.KAPPA_B``.
 
 A failed point is recorded and the chain restarts cold from the next one.
 """
@@ -45,8 +47,13 @@ def parse_args():
                    help="default: 30 (krylov_schur), 20 (cheb_ar)")
     p.add_argument("--n-b", type=int, default=None,
                    help="default: 15 (krylov_schur), 8 (cheb_ar)")
-    p.add_argument("--kappa-b-init", type=float, default=0.6 / 10.4,
-                   help="kappa_b at the first sweep point")
+    p.add_argument("--kappa-b-init", type=float, default=None,
+                   help="kappa_b at the first sweep point (default: ats.KAPPA_B)")
+    p.add_argument("--keep-adiabatic-ratio", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="rescale kappa_b as sin(eps_p) to keep kappa_b / g constant "
+                        "(default); --no-keep-adiabatic-ratio keeps kappa_b "
+                        "constant at --kappa-b-init")
     p.add_argument("--no-warm-start", action="store_true",
                    help="cold-start every point (all with the cold-start size); "
                         "makes the points independent, so they run in parallel")
@@ -100,6 +107,7 @@ def main():
 
     from anb_compute import ray as acr
     from floquet_lindblad.io import to_jsonable
+    from floquet_lindblad.models.ats import KAPPA_B
     from floquet_lindblad.pipeline import solve_point_cheb_ar_safe, solve_point_ks_safe
 
     eps_p_list = (
@@ -108,9 +116,13 @@ def main():
     )
     eps_p_init = eps_p_list[0]
 
+    kappa_b_init = KAPPA_B if args.kappa_b_init is None else args.kappa_b_init
+
     def kappa_b_for(eps_p):
+        if not args.keep_adiabatic_ratio:
+            return float(kappa_b_init)
         # keep the adiabatic ratio kappa_b / g constant across the sweep
-        return float(np.sin(eps_p) / np.sin(eps_p_init) * args.kappa_b_init)
+        return float(np.sin(eps_p) / np.sin(eps_p_init) * kappa_b_init)
 
     if args.solver == "krylov_schur":
         solve_point_safe = solve_point_ks_safe
@@ -138,7 +150,9 @@ def main():
         def size_kw(warm):
             return {"m_arnoldi": args.m_arnoldi if warm else args.m_arnoldi_first}
     kw.update(n_a=n_a, n_b=n_b, alpha_sq=args.alpha_sq)
-    print(f"solver: {args.solver}  (n_a, n_b) = ({n_a}, {n_b})")
+    print(f"solver: {args.solver}  (n_a, n_b) = ({n_a}, {n_b})  "
+          f"kappa_b: {'kappa_b / g held' if args.keep_adiabatic_ratio else 'fixed'}, "
+          f"{kappa_b_init:.5f} at eps_p = {eps_p_init:g}")
     task_opts = dict(num_gpus=1, num_cpus=args.num_cpus)
 
     results = []
@@ -204,6 +218,7 @@ def main():
     results.sort(key=lambda d: d["eps_p"])
     for r in results:
         r.setdefault("solver", args.solver)  # which pipeline wrote it
+        r.setdefault("keep_adiabatic_ratio", args.keep_adiabatic_ratio)
 
     with tempfile.TemporaryDirectory() as tmp:
         local = os.path.join(tmp, "results.json")
