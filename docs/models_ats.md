@@ -1,6 +1,6 @@
 # ATS model builders
 
-Documentation for `src/cheb_ar/models/ats.py`: the driven, dissipative
+Documentation for `src/floquet_lindblad/models/ats.py`: the driven, dissipative
 full-ATS (Asymmetrically Threaded SQUID) system — storage mode `a` (dim
 `n_a`) coupled to a lossy buffer mode `b` (dim `n_b`) — in three frames.
 The module is the **single source of truth** for the default experimental

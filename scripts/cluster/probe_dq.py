@@ -6,7 +6,7 @@ The prod-gpu image carries dynamiqs 0.3.6, but Cheb_Ar pins a *fork*
 is passed, which is the whole interaction-frame path. So the question is
 whether the image's stock dynamiqs is enough, or the fork must be shipped.
 
-    pixi run python probe_dq.py
+    pixi run python scripts/cluster/probe_dq.py
 """
 
 import os

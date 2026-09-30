@@ -53,7 +53,7 @@ except ModuleNotFoundError:
     _stub.set_precision = lambda *_args, **_kwargs: None
     sys.modules["dynamiqs"] = _stub
 
-from cheb_ar.solvers.krylov_schur import KrylovSchurLindblad  # noqa: E402
+from floquet_lindblad.solvers.krylov_schur import KrylovSchurLindblad  # noqa: E402
 
 DIM = 400
 R_BULK = 0.90

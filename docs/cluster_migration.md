@@ -1,8 +1,8 @@
 # Migrating Cheb_Ar from OAR/`chuc` to the anb-compute Ray cluster
 
 Everything below marked *measured* was verified by running against the live
-cluster on 2026-09-17 (`tests/test_gpu.py`, `tests/probe_dq.py`,
-`tests/probe_fork.py`, `tests/smoke_sweeps.py`).
+cluster on 2026-09-17 (`scripts/cluster/smoke_gpu.py`, `scripts/cluster/probe_dq.py`,
+`scripts/cluster/probe_fork.py`, `scripts/cluster/smoke_sweeps.py`).
 
 Reference docs: `alice-bob/theory/hardware/anb-emulator`, under
 `src/anb-compute/docs/user_guide/` (`ray.md`, `ray_setup.md`, `ray_api.md`,
@@ -14,7 +14,7 @@ Reference docs: `alice-bob/theory/hardware/anb-emulator`, under
 | --- | --- | --- |
 | 2 | `mesolve_fast` rebased onto v0.3.6, pin updated | **done** |
 | 3 | `--gpu-id` / `CUDA_VISIBLE_DEVICES` removed | **done** |
-| 4 | `tests/test_cheb_ar.ipynb` → one `acr.run` | **done, runs green** |
+| 4 | `notebooks/solvers/cheb_ar.ipynb` → one `acr.run` | **done, runs green** |
 | 5 | Sweeps → one job + fan-out | **done** |
 | 6 | Results → GCS | **done** |
 | 8 | The other three test notebooks | **done** |
@@ -23,14 +23,14 @@ Reference docs: `alice-bob/theory/hardware/anb-emulator`, under
 
 The sweep pipeline was duplicated four times, in near-identical form, across
 the two sweep scripts and the two sweep notebooks. It now lives once in
-[`src/cheb_ar/pipeline.py`](../src/cheb_ar/pipeline.py), which all four import —
+[`src/floquet_lindblad/pipeline.py`](../src/floquet_lindblad/pipeline.py), which all four import —
 and which cluster workers import too, since it travels in `py_modules`.
 
 | | What it is |
 | --- | --- |
-| `cheb_ar.pipeline.solve_point` | One sweep point end to end. Returns **plain numpy/python** so a result can cross to a client with no jax/dynamiqs. |
-| `cheb_ar.pipeline.solve_point_safe` | The same, returning a failure instead of raising it. This is what a sweep submits as its task. |
-| `cheb_ar.pipeline.escalating_setup` | The m-schedule / margin-halving ladder, extracted verbatim. |
+| `floquet_lindblad.pipeline.solve_point` | One sweep point end to end. Returns **plain numpy/python** so a result can cross to a client with no jax/dynamiqs. |
+| `floquet_lindblad.pipeline.solve_point_safe` | The same, returning a failure instead of raising it. This is what a sweep submits as its task. |
+| `floquet_lindblad.pipeline.escalating_setup` | The m-schedule / margin-halving ladder, extracted verbatim. |
 | `scripts/sweep_*.py`, `scripts/exact_diagonalization.py` | **Cluster drivers.** They run *on* the cluster, fan out, and save to GCS. |
 | `scripts/cluster/submit.py` | The thin client that submits a driver. Replaces the OAR `.sh` files. |
 
@@ -72,7 +72,7 @@ misleading. Check `prod-gpu`.
 | `numpy`, `scipy` | scipy 1.17.1 | fine |
 | `matplotlib` | 3.11.0 | present |
 | (dynamiqs dep) `qutip` | 5.2.3 | present |
-| `cheb_ar` | — | ship it (§4) |
+| `floquet_lindblad` (then `cheb_ar`) | — | ship it (§4) |
 
 GPU, measured:
 
@@ -93,15 +93,15 @@ no `jax[cuda12]` in `runtime_env["pip"]`, no image rebuild.
     but that binary is **not on PATH** in the worker image: it raises
     `FileNotFoundError` and tells you nothing. Use `ray.get_gpu_ids()`,
     `/proc/driver/nvidia/version` and `jax.devices()` instead, as
-    `tests/test_gpu.py` does. Worth reporting upstream.
+    `scripts/cluster/smoke_gpu.py` does. Worth reporting upstream.
 
 ## 2. The one real dependency gap: `mesolve_fast`
 
 Measured on the image: `hasattr(dq, "mesolve_fast") is False`.
 
-[`ChebAr._build_propagator`](../src/cheb_ar/solvers/cheb_ar.py#L202) calls
+[`ChebAr._build_propagator`](../src/floquet_lindblad/solvers/cheb_ar.py#L202) calls
 `dq.mesolve_fast` whenever `jump_ops_LdL` is passed — which is the entire
-interaction-frame path, i.e. what `test_cheb_ar.ipynb` and both sweeps use. So
+interaction-frame path, i.e. what `notebooks/solvers/cheb_ar.ipynb` and both sweeps use. So
 this blocks the port.
 
 Where it comes from: `pyproject.toml` pins
@@ -153,7 +153,7 @@ For cluster jobs the checkout travels via `py_modules` by path instead — the
 image already supplies dynamiqs' own dependencies.
 
 Verified on a real GPU worker by shipping it through `py_modules`
-(`tests/probe_fork.py`):
+(`scripts/cluster/probe_fork.py`):
 
 ```
 dynamiqs_file: .../runtime_resources/py_modules_files/.../dynamiqs/__init__.py
@@ -165,7 +165,7 @@ n_final: 0.8105784   n_expected (exp(-kappa t)): 0.8105842
 So the shipped copy does shadow the image's 0.3.6, `mesolve_fast` exists, runs in
 complex128 on the GPU, and agrees exactly with plain `mesolve`.
 
-### ...but v0.3.6 *did* break one call style, in `cheb_ar` itself
+### ...but v0.3.6 *did* break one call style, in the package itself
 
 Upstream #1088 flattened the **public** `mesolve`'s solver options into keyword
 arguments. On v0.3.6:
@@ -194,13 +194,13 @@ them would silently do nothing. Passing them now raises `TypeError` (verified),
 which is the honest failure.
 
 So **all three** call sites in
-[`cheb_ar.py`](../src/cheb_ar/solvers/cheb_ar.py) change the same way:
+[`cheb_ar.py`](../src/floquet_lindblad/solvers/cheb_ar.py) change the same way:
 
 | Site | Call | Change |
 | --- | --- | --- |
-| [L203–210](../src/cheb_ar/solvers/cheb_ar.py#L203) | `dq.mesolve_fast(..., options=dq.Options(assume_hermitian=False))` | → `assume_hermitian=False` |
-| [L213–219](../src/cheb_ar/solvers/cheb_ar.py#L213) | `dq.mesolve(..., options=dq.Options(assume_hermitian=False))` | → `assume_hermitian=False` |
-| [L258–263](../src/cheb_ar/solvers/cheb_ar.py#L258) | `dq.mesolve(..., options=dq.Options(assume_hermitian=False))` (in `scipy_dominant_eig`) | → `assume_hermitian=False` |
+| [L203–210](../src/floquet_lindblad/solvers/cheb_ar.py#L203) | `dq.mesolve_fast(..., options=dq.Options(assume_hermitian=False))` | → `assume_hermitian=False` |
+| [L213–219](../src/floquet_lindblad/solvers/cheb_ar.py#L213) | `dq.mesolve(..., options=dq.Options(assume_hermitian=False))` | → `assume_hermitian=False` |
+| [L258–263](../src/floquet_lindblad/solvers/cheb_ar.py#L258) | `dq.mesolve(..., options=dq.Options(assume_hermitian=False))` (in `scipy_dominant_eig`) | → `assume_hermitian=False` |
 
 i.e. drop `options=dq.Options(...)` and pass `assume_hermitian=False` directly.
 
@@ -225,7 +225,7 @@ a `ChebAr` without `jump_ops_LdL` — likely much later, and confusingly.
 2. Keep shipping `precomputed-ldl-v036` via `py_modules` by path. Ray
    content-hashes the directory, so edits reship automatically. This is the
    working state today.
-3. Fallback needing nothing shipped but `cheb_ar`: pass `jump_ops_LdL=None` so
+3. Fallback needing nothing shipped but `floquet_lindblad`: pass `jump_ops_LdL=None` so
    `_build_propagator` takes the plain `dq.mesolve` branch (after fixing the
    `options=` call above). Slower, and not what the sweeps are tuned for, but
    fine for a first end-to-end smoke test.
@@ -234,7 +234,7 @@ a `ChebAr` without `jump_ops_LdL` — likely much later, and confusingly.
 
 Four places set it:
 
-- [`tests/test_cheb_ar.ipynb`](../tests/test_cheb_ar.ipynb) cell 1:
+- [`notebooks/solvers/cheb_ar.ipynb`](../notebooks/solvers/cheb_ar.ipynb) cell 1:
   `os.environ["CUDA_VISIBLE_DEVICES"] = "2"`
 - [`scripts/sweep_alpha.py:48`](../scripts/sweep_alpha.py#L48),
   [`scripts/sweep_eps_p.py:48`](../scripts/sweep_eps_p.py#L48),
@@ -254,13 +254,13 @@ is arbitrary, and hardcoding `"2"` would point at a card allocated to somebody
 else's task. Drop `--gpu-id` and the `os.environ` line entirely.
 
 Keep the `require_gpu=True` guard in
-[`ChebAr.__init__`](../src/cheb_ar/solvers/cheb_ar.py#L101). It is exactly right
+[`ChebAr.__init__`](../src/floquet_lindblad/solvers/cheb_ar.py#L101). It is exactly right
 here — it turns "silently ran on CPU for six hours" into an immediate
 `RuntimeError`.
 
 ## 4. The notebook: 13 stateful cells → one function
 
-[`tests/test_cheb_ar.ipynb`](../tests/test_cheb_ar.ipynb) is a linear pipeline
+[`notebooks/solvers/cheb_ar.ipynb`](../notebooks/solvers/cheb_ar.ipynb) is a linear pipeline
 spread across cells, each mutating `solver` for the next:
 
 ```
@@ -283,9 +283,9 @@ returning **plain arrays**; then reconstruct `rho_lab` and plot locally.
 
 ```python
 def run_point(alpha_sq, n_a=25, n_b=11, m_arnoldi_0=60, m_arnoldi=120, margin=1e-2):
-    from cheb_ar import ChebAr
-    from cheb_ar.io import to_jsonable
-    from cheb_ar.models.ats import build_ats_hamiltonian_interaction
+    from floquet_lindblad import ChebAr
+    from floquet_lindblad.io import to_jsonable
+    from floquet_lindblad.models.ats import build_ats_hamiltonian_interaction
 
     H_I, jops, jops_LdL, phase, V, T_block, params = (
         build_ats_hamiltonian_interaction(n_a=n_a, n_b=n_b, alpha_sq=alpha_sq)
@@ -306,7 +306,7 @@ def run_point(alpha_sq, n_a=25, n_b=11, m_arnoldi_0=60, m_arnoldi=120, margin=1e
     })
 ```
 
-`to_jsonable` (already in [`io.py`](../src/cheb_ar/io.py)) does double duty here:
+`to_jsonable` (already in [`io.py`](../src/floquet_lindblad/io.py)) does double duty here:
 the serialization layer written for JSON files is exactly the right cloudpickle
 boundary. Nice accident of the existing design.
 
@@ -320,7 +320,7 @@ out = acr.run(
     num_gpus=1, num_cpus=8,
     runtime_env=acr.build_runtime_env(
         py_modules=[
-            str(REPO / "src" / "cheb_ar"),   # by PATH, not by name
+            str(REPO / "src" / "floquet_lindblad"),   # by PATH, not by name
             DYNAMIQS,                        # the patched checkout
         ],
     ),
@@ -329,7 +329,7 @@ out = acr.run(
 
 Caveats from the docs:
 
-- `py_modules` **by path**. A bare `"cheb_ar"` resolving to a non-editable
+- `py_modules` **by path**. A bare `"floquet_lindblad"` resolving to a non-editable
   `site-packages` install ships a frozen copy and your edits never leave the
   container (`build_runtime_env` warns, but quietly).
 - `working_dir` is **reserved** by `acr.run`. Read inputs from GCS instead —
@@ -343,7 +343,7 @@ Caveats from the docs:
 
 ### DONE: ported and verified
 
-`tests/test_cheb_ar.ipynb` is now 6 cells: prerequisites (markdown), auth/version
+`notebooks/solvers/cheb_ar.ipynb` is now 6 cells: prerequisites (markdown), auth/version
 guard + `RUNTIME_ENV`, the `run_cheb_ar` function, the `acr.run` call, the
 scalars, and a local matplotlib Wigner plot.
 
@@ -507,12 +507,12 @@ scripts already had.
 
 Worth stating, since the list above is long:
 
-- `src/cheb_ar/solvers/cheb_ar.py` — numerics untouched. Model-agnostic, pure
+- `src/floquet_lindblad/solvers/cheb_ar.py` — numerics untouched. Model-agnostic, pure
   Python, double precision, jits fine on the image's jax. Only the
   `require_gpu` guard is cluster-relevant, and it stays.
-- `src/cheb_ar/models/ats.py` — physics constants and the three frame builders
+- `src/floquet_lindblad/models/ats.py` — physics constants and the three frame builders
   unaffected.
-- `src/cheb_ar/io.py` — unaffected, and doubles as the task-result boundary.
+- `src/floquet_lindblad/io.py` — unaffected, and doubles as the task-result boundary.
 - Module-level `jax_enable_x64` / `dq.set_precision("double")` — correct as-is;
   they run on the worker at import, and x64 was verified working there.
 - The `jax`/`jaxlib`/`diffrax` pins in `pyproject.toml` — they match the image
@@ -523,7 +523,7 @@ Worth stating, since the list above is long:
 Done:
 
 1. ~~Resolve `mesolve_fast`~~ (§2) — rebased onto v0.3.6, pushed, pin updated.
-2. ~~Port `tests/test_cheb_ar.ipynb` to a single `acr.run` function~~ (§4).
+2. ~~Port `notebooks/solvers/cheb_ar.ipynb` to a single `acr.run` function~~ (§4).
 3. ~~Strip `--gpu-id` / `CUDA_VISIBLE_DEVICES`~~ from the three scripts (§3).
 4. ~~Delete `scripts/cluster/*.sh`~~ (the OAR job files).
 

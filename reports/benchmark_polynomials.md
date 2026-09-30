@@ -1,7 +1,7 @@
 # Benchmark: polynomial filters in U -- U^n vs T_n(U)
 
-Sources: `tests/benchmark_polynomials.ipynb` (`alpha_sq = 6`) and
-`tests/benchmark_polynomials copy.ipynb` (`alpha_sq = 3`). Same code, only
+Sources: `notebooks/benchmarks/benchmark_polynomials.ipynb` (`alpha_sq = 6`) and
+`notebooks/benchmarks/benchmark_polynomials_small_cat.ipynb` (`alpha_sq = 3`). Same code, only
 `alpha_sq` differs.
 
 Both notebooks compare two degree-`n` polynomials of the one-drive-period
@@ -13,7 +13,7 @@ steps from the same seed:
 | `power` | `U^n` | `ArnoldiLindblad` on an `n`-period block (`n_periods = n`) |
 | `cheb` | `T_n(U)` | `ChebAr` on a 1-period block with `cheb_degree = n` (`m_cheb_0 = 60`, `margin = 1e-2`) |
 
-Other parameters are those of `benchmark_methods.ipynb`: `n_a = 25`,
+Other parameters are those of `notebooks/benchmarks/benchmark_methods.ipynb`: `n_a = 25`,
 `n_b = 11`, `epsilon_p = 0.1`, `seed = 0`. Cost is counted in base
 (single-period) propagator applications: `apps_power = 60 n`,
 `apps_cheb = 60 + 60 n` (the extra 60 is `ChebAr`'s one-off unfiltered
@@ -96,7 +96,7 @@ converged while doing it.**
 - `cheb` never gets there. From `n = 8` on it is fully self-consistent --
   `rate_bf = 2.68e-4` to four digits, `res_rel` dropping from `4e-5` to
   `1.3e-7` -- and 38.5% below the reference, at every `n`. This is the
-  same `2.68e-4` that `benchmark_methods.ipynb` found for `cheb_ar` at
+  same `2.68e-4` that `notebooks/benchmarks/benchmark_methods.ipynb` found for `cheb_ar` at
   `alpha_sq = 3` with `m = 90`, `cheb_degree = 6`. Adding degree does not
   fix it: the filter is converging cleanly to an eigenvalue of `T_n(U)` that
   is not the one we want.

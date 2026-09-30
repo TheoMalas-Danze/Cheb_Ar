@@ -1,6 +1,6 @@
 # Chebyshev–Arnoldi bit-flip rate solver
 
-Documentation for `src/cheb_ar/solvers/cheb_ar.py` (the `ChebAr` solver) and
+Documentation for `src/floquet_lindblad/solvers/cheb_ar.py` (the `ChebAr` solver) and
 the sweep scripts built on top of it (`scripts/sweep_eps_p.py`,
 `scripts/sweep_alpha.py`, `scripts/exact_diagonalization.py`). All of it
 originates from the pre-merge notebook `Chebyshev-Arnoldi.ipynb` (kept
@@ -46,7 +46,7 @@ Arnoldi iteration**:
 `scipy_dominant_eig` is a slower CPU/`scipy.sparse.linalg.eigs` reference
 path used to cross-check the JAX pipeline on small Hilbert spaces.
 
-## 2. `src/cheb_ar/solvers/cheb_ar.py` — the `ChebAr` class
+## 2. `src/floquet_lindblad/solvers/cheb_ar.py` — the `ChebAr` class
 
 Model-agnostic: it only needs a Hamiltonian and jump operators (the Liouvillian
 data), and works purely on the vectorized/projected propagator. The ATS model
@@ -102,8 +102,8 @@ solver = ChebAr(Ham, jump_ops, T_block, jump_ops_LdL=None, output_phase=None,
 ### Typical use (from the module docstring)
 
 ```python
-from cheb_ar import ChebAr
-from cheb_ar.models.ats import build_ats_hamiltonian
+from floquet_lindblad import ChebAr
+from floquet_lindblad.models.ats import build_ats_hamiltonian
 
 H, jump_ops, T_block, _ = build_ats_hamiltonian(alpha_sq=8.5)
 solver = ChebAr(H, jump_ops, T_block, dims=(20, 11), cheb_degree=6)
@@ -120,7 +120,7 @@ rate = solver.rate_from_mu(mu_list[-1])
 ```
 
 > `build_ats_hamiltonian` and its rotating-/interaction-frame variants live in
-> `src/cheb_ar/models/ats.py` (single source of truth, with the default
+> `src/floquet_lindblad/models/ats.py` (single source of truth, with the default
 > experimental parameters as module constants; see `docs/models_ats.md`).
 
 ## 3. `scripts/` — sweep drivers
@@ -134,7 +134,7 @@ sweeps run in the **interaction frame**
 `output_phase`; see `docs/models_ats.md`). Each sweep point is wrapped in
 `try/except`: a failure is logged and appended as an `"error"` entry so one
 bad point doesn't kill the sweep. Results are written as indented JSON via
-`cheb_ar.io.to_jsonable` (see `docs/io.md`).
+`floquet_lindblad.io.to_jsonable` (see `docs/io.md`).
 
 ### `sweep_eps_p.py`
 
@@ -199,9 +199,9 @@ second-largest-`|mu|` eigenvalue as the bit-flip eigenvalue, and converts via
 ## 5. Layout
 
 The reorganization sketched here during the merge is complete: the
-model-agnostic solver lives in `src/cheb_ar/solvers/cheb_ar.py`, the ATS
-builders and constants in `src/cheb_ar/models/ats.py` (`docs/models_ats.md`),
-the JSON helpers in `src/cheb_ar/io.py` (`docs/io.md`), and the CLI sweep
+model-agnostic solver lives in `src/floquet_lindblad/solvers/cheb_ar.py`, the ATS
+builders and constants in `src/floquet_lindblad/models/ats.py` (`docs/models_ats.md`),
+the JSON helpers in `src/floquet_lindblad/io.py` (`docs/io.md`), and the CLI sweep
 drivers in `scripts/` with their OAR job files in `scripts/cluster/`. The GPU
 test notebooks — validated on the cluster — live in `tests/`; the pre-merge
 code is kept untracked in `Archive/`. The sweep scripts deliberately stay

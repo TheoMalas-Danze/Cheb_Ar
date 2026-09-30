@@ -2,14 +2,14 @@
 
 This used to be copy-pasted four times, in near-identical form, across
 ``scripts/sweep_alpha.py``, ``scripts/sweep_eps_p.py``,
-``tests/test_sweep_alpha.ipynb`` and ``tests/test_sweep_eps_p.ipynb``. The two
+``notebooks/sweeps/legacy_cheb_ar/sweep_alpha.ipynb`` and ``notebooks/sweeps/legacy_cheb_ar/sweep_eps_p.ipynb``. The two
 sweeps differ only in *what* varies along them (``alpha_sq`` at fixed basis, or
 ``eps_p`` with a basis that moves and so needs
-:func:`~cheb_ar.models.ats.transform_vectorized_state`), never in the pipeline
+:func:`~floquet_lindblad.models.ats.transform_vectorized_state`), never in the pipeline
 itself.
 
 It lives in the package rather than in the scripts because cluster workers
-import it: the sweep drivers ship ``cheb_ar`` through the Ray ``runtime_env``
+import it: the sweep drivers ship ``floquet_lindblad`` through the Ray ``runtime_env``
 and each task calls :func:`solve_point`.
 
 Everything :func:`solve_point` returns is plain numpy / python — no jax arrays,
@@ -146,12 +146,12 @@ def solve_point(
     """
     import time
 
-    from cheb_ar.models.ats import (
+    from floquet_lindblad.models.ats import (
         KAPPA_B,
         build_ats_hamiltonian_interaction,
         transform_vectorized_state,
     )
-    from cheb_ar.solvers.cheb_ar import ChebAr
+    from floquet_lindblad.solvers.cheb_ar import ChebAr
 
     def py(v):
         """0-d jax/numpy scalar -> plain python float/complex."""

@@ -28,7 +28,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 SCRIPTS = os.path.join(REPO, "scripts")
 
 # Shipped by PATH, not by name, so local edits actually reach the workers.
-CHEB_AR = os.path.join(REPO, "src", "cheb_ar")
+PKG = os.path.join(REPO, "src", "floquet_lindblad")
 # Upstream dynamiqs v0.3.6 + the `mesolve_fast` patch; the cluster image carries
 # a stock 0.3.6, which lacks it. Drop this once the patch is upstreamed.
 # Derived, not hardcoded: a `dynamiqs` checkout beside this repo, or $DYNAMIQS_SRC.
@@ -58,7 +58,7 @@ def main():
 
     if os.environ.get("RAY_AUTH_MODE") != "token":
         sys.exit("RAY_AUTH_MODE is not set to 'token' — see the header of this file.")
-    for path in (CHEB_AR, DYNAMIQS):
+    for path in (PKG, DYNAMIQS):
         if not os.path.isdir(path):
             sys.exit(f"not a directory: {path}")
 
@@ -80,7 +80,7 @@ def main():
     print(f"results   : {uri}results.json")
 
     runtime_env = acr.build_runtime_env(
-        py_modules=[CHEB_AR, DYNAMIQS],
+        py_modules=[PKG, DYNAMIQS],
         # The driver script itself travels as the working dir; its *contents*
         # land at the driver's CWD, hence `python sweep_alpha.py`, not
         # `python scripts/sweep_alpha.py`.

@@ -35,15 +35,22 @@ inconsistent conventions, and dead code are expected until cleanup is done.
 ## Repo layout
 
 ```
-src/cheb_ar/
+src/floquet_lindblad/
   solvers/      # model-agnostic numerics: cheb_ar.py (ChebAr), arnoldi_no_cheb.py
                 #   (ArnoldiLindblad), krylov_schur.py (KrylovSchurLindblad)
   models/       # physical model builders: ats.py (3 frame variants + constants)
+  pipeline.py   # one sweep point end to end (imported by cluster workers)
   io.py         # JSON (de)serialization helpers for sweep results
 scripts/        # sweep/entry-point scripts (CLI-driven, no hardcoded paths)
-  cluster/      # OAR job files
+  cluster/      # job submission + cluster probes/smoke tests (smoke_gpu, probe_*, smoke_sweeps)
+notebooks/      # GPU notebooks, run on the cluster (not imported by src/ or scripts/)
+  sweeps/       #   parameter sweeps (Krylov-Schur); legacy_cheb_ar/ holds the ChebAr ones
+  benchmarks/   #   solver/filter comparisons, written up in reports/
+  solvers/      #   single-point runs of each solver
+tests/          # tests runnable off the cluster (test_krylov_schur_cpu.py)
 docs/           # reference docs per module/subsystem
-tests/          # GPU test notebooks, validated on the cluster (not imported by src/ or scripts/)
+reports/        # benchmark write-ups
+results/        # untracked: local simulation outputs
 Archive/        # untracked: pre-merge code kept locally, just in case
 ```
 
@@ -55,7 +62,7 @@ Installable package: `pip install -e .` (that's what requirements.txt does).
   cluster output paths) were removed in the merge cleanup — flag any new
   ones you find; use CLI arguments instead.
 - **Physics constants** have their single source of truth in
-  `src/cheb_ar/models/ats.py` (module constants + builder defaults) —
+  `src/floquet_lindblad/models/ats.py` (module constants + builder defaults) —
   don't introduce copies in scripts or notebooks.
 - **Docstrings can lag the actual module layout** 
 - GPU-guard `RuntimeError`s (`require_gpu=True`, explicit `jax.devices()`
@@ -83,7 +90,7 @@ Installable package: `pip install -e .` (that's what requirements.txt does).
   stops on the residual); its CPU test `tests/test_krylov_schur_cpu.py` is the
   one piece of solver numerics that can be run off the cluster.
 - `docs/models_ats.md` — the three frame variants of the ATS builder in
-  `src/cheb_ar/models/ats.py` and the default experimental constants
+  `src/floquet_lindblad/models/ats.py` and the default experimental constants
   (single source of truth).
-- `docs/io.md` — the JSON (de)serialization helpers in `src/cheb_ar/io.py`
+- `docs/io.md` — the JSON (de)serialization helpers in `src/floquet_lindblad/io.py`
   and their round-trip caveats.

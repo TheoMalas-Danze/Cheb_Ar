@@ -47,7 +47,7 @@ def _point(eps_p, alpha_sq, n_a, n_b, want_vector):
     import jax.numpy as jnp
     import numpy as np
 
-    from cheb_ar.models.ats import build_ats_hamiltonian_rotating
+    from floquet_lindblad.models.ats import build_ats_hamiltonian_rotating
 
     try:
         Ham_full, jump_ops, T_block, _ = build_ats_hamiltonian_rotating(
@@ -74,7 +74,7 @@ def _point(eps_p, alpha_sq, n_a, n_b, want_vector):
             out["bit_flip_vec"] = np.asarray(bit_flip_vec)
         return out
     except Exception as exc:  # noqa: BLE001 - one bad point must not sink the grid
-        from cheb_ar.pipeline import error_entry
+        from floquet_lindblad.pipeline import error_entry
 
         return error_entry(exc, eps_p=float(eps_p), alpha_sq=float(alpha_sq))
 
@@ -86,7 +86,7 @@ def main():
     import ray
 
     from anb_compute import ray as acr
-    from cheb_ar.io import to_jsonable
+    from floquet_lindblad.io import to_jsonable
 
     n_eps, n_alpha = len(args.eps_p), len(args.alpha_sq)
     dim = (args.n_a * args.n_b) ** 2

@@ -67,8 +67,8 @@ def main():
     import ray
 
     from anb_compute import ray as acr
-    from cheb_ar.io import to_jsonable
-    from cheb_ar.pipeline import solve_point_safe
+    from floquet_lindblad.io import to_jsonable
+    from floquet_lindblad.pipeline import solve_point_safe
 
     eps_p_list = (
         list(args.eps_p) if args.eps_p is not None

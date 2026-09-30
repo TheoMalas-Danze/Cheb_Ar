@@ -1,8 +1,8 @@
 # Thick-restarted Arnoldi (Krylov–Schur) bit-flip rate solver
 
-Documentation for `src/cheb_ar/solvers/krylov_schur.py` (the
+Documentation for `src/floquet_lindblad/solvers/krylov_schur.py` (the
 `KrylovSchurLindblad` solver), the cluster notebook
-`tests/test_krylov_schur.ipynb` and the CPU test `tests/test_krylov_schur_cpu.py`.
+`notebooks/solvers/krylov_schur.ipynb` and the CPU test `tests/test_krylov_schur_cpu.py`.
 The propagator is GPU-only (JAX + `dynamiqs`), like the other two solvers; the
 restart algebra itself runs anywhere, which is what the CPU test exercises.
 
@@ -134,7 +134,7 @@ too large and memory grows for no gain.
 
 ## 5. Running it on the cluster
 
-`tests/test_krylov_schur.ipynb` mirrors `tests/test_arnoldi_no_cheb.ipynb`:
+`notebooks/solvers/krylov_schur.ipynb` mirrors `notebooks/solvers/arnoldi_no_cheb.ipynb`:
 the same bootstrap/auth cell (keep them in sync), one picklable
 `run_krylov_schur` handed to `acr.run` with `num_gpus=1`, plain numpy back.
 It runs `alpha_sq = 6` on `(n_a, n_b) = (25, 11)` twice — loop at
@@ -144,8 +144,8 @@ the 10-block Rayleigh-quotient rate with `reports/benchmark_methods.md`
 integrations). Per-cycle Ritz values, residuals and the kept set come back
 in `history`; the basis does not.
 
-`tests/test_sweep_alpha_krylov_shur.ipynb` is the sweep form of the same
-thing: the structure of `tests/test_sweep_alpha.ipynb` (one job, one GPU task
+`notebooks/sweeps/sweep_alpha.ipynb` is the sweep form of the same
+thing: the structure of `notebooks/sweeps/legacy_cheb_ar/sweep_alpha.ipynb` (one job, one GPU task
 per `alpha_sq`, the perturbative comparison at the end) with this solver in
 place of the `ChebAr` pipeline. There is no `pipeline.solve_point` for
 `KrylovSchurLindblad`, so the per-point work is a notebook-level
@@ -158,8 +158,8 @@ and `n_blocks_final` growing 10 → 100 — because `1 - mu` per period *is* the
 rate, ~2.5e-6 at `alpha_sq = 6` and falling like `exp(-alpha_sq)`, so the long
 block is what keeps it resolvable above the integrator noise.
 
-`tests/test_sweep_eps_p_krylov_shur.ipynb` is the same thing for the `eps_p`
-sweep, i.e. the structure of `tests/test_sweep_eps_p.ipynb`: sequential by
+`notebooks/sweeps/sweep_eps_p.ipynb` is the same thing for the `eps_p`
+sweep, i.e. the structure of `notebooks/sweeps/legacy_cheb_ar/sweep_eps_p.ipynb`: sequential by
 default, each point warm-started from the previous one's Ritz vector rotated
 into the new eigenbasis (`ats.transform_vectorized_state` — both solvers
 vectorize column-major, so it applies to `KrylovSchurLindblad` unchanged),

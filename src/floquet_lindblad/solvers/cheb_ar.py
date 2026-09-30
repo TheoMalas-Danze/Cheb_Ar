@@ -10,9 +10,9 @@ the model and the solver stay decoupled.
 
 Typical use
 -----------
->>> from cheb_ar import ChebAr
+>>> from floquet_lindblad import ChebAr
 >>> # model builders (e.g. the ATS Hamiltonian) live outside the solver;
->>> # they will be collected in ``cheb_ar.models``
+>>> # they will be collected in ``floquet_lindblad.models``
 >>> H, jump_ops, T_block, _ = build_ats_hamiltonian(alpha_sq=8.5)
 >>> solver = ChebAr(H, jump_ops, T_block, dims=(20, 11), cheb_degree=6)
 >>> x0 = solver.make_x0(seed=0)

@@ -5,19 +5,19 @@ sys.path and so shadows the image's stock 0.3.6. Then does more than import it:
 runs an actual `mesolve_fast` and checks it agrees with plain `mesolve`, which is
 the property Cheb_Ar relies on.
 
-    pixi run python probe_fork.py
+    pixi run python scripts/cluster/probe_fork.py
 """
 
 import os
 import pathlib
 import sys
 
-# Derived, never hardcoded: this file is tests/<name>.py, so the repo root is
-# two levels up. (CLAUDE.md: absolute paths were stripped from this repo once
+# Derived, never hardcoded: this file is scripts/cluster/<name>.py, so the repo root
+# is three levels up. (CLAUDE.md: absolute paths were stripped from this repo once
 # already.) The patched dynamiqs checkout is expected beside the repo; override
 # with $DYNAMIQS_SRC.
-REPO = pathlib.Path(__file__).resolve().parents[1]
-CHEB_AR = str(REPO / "src" / "cheb_ar")
+REPO = pathlib.Path(__file__).resolve().parents[2]
+PKG = str(REPO / "src" / "floquet_lindblad")
 DYNAMIQS = os.environ.get("DYNAMIQS_SRC") or str(REPO.parent / "dynamiqs" / "dynamiqs")
 
 FORK = DYNAMIQS

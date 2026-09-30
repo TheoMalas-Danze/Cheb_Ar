@@ -1,6 +1,6 @@
 """Smoke test for the anb-compute Ray cluster, from the anb-dev container.
 
-Run with:  pixi run python test_gpu.py
+Run with:  pixi run python scripts/cluster/smoke_gpu.py
 
 Prerequisites (see the anb-compute "Ray setup" user guide, laptop path):
 

@@ -1,7 +1,7 @@
 """Thick-restarted Arnoldi (Krylov-Schur) on a vectorized Lindbladian propagator.
 
 ``KrylovSchurLindblad`` targets the same quantity as
-:class:`~cheb_ar.solvers.arnoldi_no_cheb.ArnoldiLindblad` -- the eigenvalue of
+:class:`~floquet_lindblad.solvers.arnoldi_no_cheb.ArnoldiLindblad` -- the eigenvalue of
 largest real part of the trace-projected one-block propagator ``P`` -- with the
 same interaction-frame hooks (``jump_ops_LdL``, ``output_phase``) and the same
 vectorization conventions. The difference is what happens when the Krylov basis

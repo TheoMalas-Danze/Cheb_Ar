@@ -10,19 +10,19 @@ Fock truncation so it costs seconds rather than GPU-hours:
 3. the failure path: a bad point is *returned* as an error entry, not raised,
    so it cannot sink the sweep.
 
-    pixi run python smoke_sweeps.py
+    pixi run python scripts/cluster/smoke_sweeps.py
 """
 
 import os
 import pathlib
 import sys
 
-# Derived, never hardcoded: this file is tests/<name>.py, so the repo root is
-# two levels up. (CLAUDE.md: absolute paths were stripped from this repo once
+# Derived, never hardcoded: this file is scripts/cluster/<name>.py, so the repo root
+# is three levels up. (CLAUDE.md: absolute paths were stripped from this repo once
 # already.) The patched dynamiqs checkout is expected beside the repo; override
 # with $DYNAMIQS_SRC.
-REPO = pathlib.Path(__file__).resolve().parents[1]
-CHEB_AR = str(REPO / "src" / "cheb_ar")
+REPO = pathlib.Path(__file__).resolve().parents[2]
+PKG = str(REPO / "src" / "floquet_lindblad")
 DYNAMIQS = os.environ.get("DYNAMIQS_SRC") or str(REPO.parent / "dynamiqs" / "dynamiqs")
 
 # Small enough to be quick, big enough that the ellipse fit has something to do.
@@ -40,7 +40,7 @@ def driver(settings):
     import ray
 
     from anb_compute import ray as acr
-    from cheb_ar.pipeline import solve_point_safe
+    from floquet_lindblad.pipeline import solve_point_safe
 
     report = {}
 
@@ -103,7 +103,7 @@ if __name__ == "__main__":
 
     out = acr.run(
         driver, SMALL,
-        runtime_env=acr.build_runtime_env(py_modules=[CHEB_AR, DYNAMIQS]),
+        runtime_env=acr.build_runtime_env(py_modules=[PKG, DYNAMIQS]),
         poll_seconds=5,
     )
     print("\n=== fan-out (independent points) ===")

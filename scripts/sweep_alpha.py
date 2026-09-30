@@ -59,8 +59,8 @@ def main():
     args = parse_args()
 
     from anb_compute import ray as acr
-    from cheb_ar.io import from_jsonable, to_jsonable
-    from cheb_ar.pipeline import solve_point_safe
+    from floquet_lindblad.io import from_jsonable, to_jsonable
+    from floquet_lindblad.pipeline import solve_point_safe
 
     kw = dict(
         n_a=args.n_a,

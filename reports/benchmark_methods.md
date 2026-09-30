@@ -1,6 +1,6 @@
 # Benchmark: ChebAr vs plain Arnoldi vs naive Arnoldi
 
-Source: `tests/benchmark_methods.ipynb`. Three ways to estimate the bit-flip
+Source: `notebooks/benchmarks/benchmark_methods.ipynb`. Three ways to estimate the bit-flip
 rate (decay rate of the slowest non-trivial eigenvalue of the
 trace-projected Floquet propagator), compared at `alpha_sq = 3` and
 `alpha_sq = 6` on identical Hilbert spaces and the same GPU (one job per

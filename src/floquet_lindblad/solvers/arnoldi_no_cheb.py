@@ -1,7 +1,7 @@
 """Plain Arnoldi iteration on a vectorized Lindbladian (Floquet) propagator.
 
 ``ArnoldiLindblad`` is the Chebyshev-free counterpart of
-:class:`~cheb_ar.solvers.cheb_ar.ChebAr`: same target (the slowest decaying
+:class:`~floquet_lindblad.solvers.cheb_ar.ChebAr`: same target (the slowest decaying
 eigenvalue of the one-block propagator ``P``), same interaction-frame hooks
 (``jump_ops_LdL``, ``output_phase``), but no spectral filter — it just runs
 Arnoldi to convergence. Useful as a reference check on ``ChebAr``'s filtered

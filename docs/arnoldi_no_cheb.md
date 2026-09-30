@@ -1,8 +1,8 @@
 # Plain Arnoldi bit-flip rate solver
 
-Documentation for `src/cheb_ar/solvers/arnoldi_no_cheb.py` (the
+Documentation for `src/floquet_lindblad/solvers/arnoldi_no_cheb.py` (the
 `ArnoldiLindblad` solver) and the notebook built on it,
-`tests/test_arnoldi_no_cheb.ipynb`. Like everything else here it is GPU-only
+`notebooks/solvers/arnoldi_no_cheb.ipynb`. Like everything else here it is GPU-only
 (JAX + `dynamiqs`) and cannot be executed on a CPU-only machine. The ATS model
 builders are documented in `docs/models_ats.md`, the filtered solver in
 `docs/cheb_ar.md`.
@@ -72,13 +72,13 @@ Q, H, steps, mu_list = solver.arnoldi(x0, 100, m_old=60, Q_old=Q, H_old=H)
 
 ## 4. Running it on the cluster
 
-`tests/test_arnoldi_no_cheb.ipynb` mirrors `tests/test_cheb_ar.ipynb`: the whole
+`notebooks/solvers/arnoldi_no_cheb.ipynb` mirrors `notebooks/solvers/cheb_ar.ipynb`: the whole
 pipeline is one picklable `run_arnoldi` function handed to `acr.run` with
 `num_gpus=1`, returning **plain numpy/python objects only** (the client has
 neither jax nor dynamiqs). Wigner grids are computed on the worker; the client
 only plots.
 
-The bootstrap/auth cell is copied verbatim from `test_cheb_ar.ipynb` — keep the
+The bootstrap/auth cell is copied verbatim from `notebooks/solvers/cheb_ar.ipynb` — keep the
 two in sync, and see `RAY_SETUP_NOTES.md` for the two separate auth steps (the
 Ray token, and the GCS credentials needed to fetch the result envelope).
 
@@ -91,7 +91,7 @@ pre-cluster notebooks, which simply kept everything in the kernel.
 Defaults are `n_a=40, n_b=15, alpha_sq=10, epsilon_p=0.1, n_periods=6,
 m_arnoldi=90`, carried over from `arnoldi_no_cheb/test_ar_no_cheb.ipynb`.
 Physics constants are **not** arguments — they come from
-`cheb_ar.models.ats`, which is their single source of truth. Note that
+`floquet_lindblad.models.ats`, which is their single source of truth. Note that
 `n_a=40, n_b=15` is a considerably larger space than the `ChebAr` notebook's
-`(25, 11)`; see the Fock-truncation discussion in `tests/test_cheb_ar.ipynb`
+`(25, 11)`; see the Fock-truncation discussion in `notebooks/solvers/cheb_ar.ipynb`
 for why that is the safer choice at `alpha_sq=10`.

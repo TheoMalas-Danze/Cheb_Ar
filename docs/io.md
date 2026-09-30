@@ -1,6 +1,6 @@
 # JSON (de)serialization helpers
 
-Documentation for `src/cheb_ar/io.py` — previously copy-pasted as
+Documentation for `src/floquet_lindblad/io.py` — previously copy-pasted as
 `_to_jsonable` / `_from_jsonable` / `load_json` in every sweep script.
 
 ## Functions
