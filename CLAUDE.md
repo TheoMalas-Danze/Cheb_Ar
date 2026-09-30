@@ -36,7 +36,8 @@ inconsistent conventions, and dead code are expected until cleanup is done.
 
 ```
 src/cheb_ar/
-  solvers/      # model-agnostic numerics: cheb_ar.py (ChebAr class)
+  solvers/      # model-agnostic numerics: cheb_ar.py (ChebAr), arnoldi_no_cheb.py
+                #   (ArnoldiLindblad), krylov_schur.py (KrylovSchurLindblad)
   models/       # physical model builders: ats.py (3 frame variants + constants)
   io.py         # JSON (de)serialization helpers for sweep results
 scripts/        # sweep/entry-point scripts (CLI-driven, no hardcoded paths)
@@ -77,6 +78,10 @@ Installable package: `pip install -e .` (that's what requirements.txt does).
   scripts (algorithm, method table, ellipse-fit escalation ladder).
 - `docs/arnoldi_no_cheb.md` — the unfiltered `ArnoldiLindblad` solver, the
   reference check on `ChebAr`'s filtered result.
+- `docs/krylov_schur.md` — the thick-restarted `KrylovSchurLindblad` solver
+  (iterates on the one-period propagator, restarts keeping the slow cluster,
+  stops on the residual); its CPU test `tests/test_krylov_schur_cpu.py` is the
+  one piece of solver numerics that can be run off the cluster.
 - `docs/models_ats.md` — the three frame variants of the ATS builder in
   `src/cheb_ar/models/ats.py` and the default experimental constants
   (single source of truth).
