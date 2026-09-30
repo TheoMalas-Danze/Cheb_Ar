@@ -10,6 +10,11 @@ Fock truncation so it costs seconds rather than GPU-hours:
 3. the failure path: a bad point is *returned* as an error entry, not raised,
    so it cannot sink the sweep.
 
+It runs the ChebAr pipeline (``solve_point_cheb_ar_safe``), whose small
+settings are known to be quick. The Krylov-Schur pipeline shares the same
+contract (``x0`` / ``V_prev`` / ``want_V`` / error entries) but has no
+smoke settings calibrated yet.
+
     pixi run python scripts/cluster/smoke_sweeps.py
 """
 
@@ -40,7 +45,7 @@ def driver(settings):
     import ray
 
     from anb_compute import ray as acr
-    from floquet_lindblad.pipeline import solve_point_safe
+    from floquet_lindblad.pipeline import solve_point_cheb_ar_safe as solve_point_safe
 
     report = {}
 

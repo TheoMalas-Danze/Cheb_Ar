@@ -1,8 +1,10 @@
 # Chebyshev–Arnoldi bit-flip rate solver
 
-Documentation for `src/floquet_lindblad/solvers/cheb_ar.py` (the `ChebAr` solver) and
-the sweep scripts built on top of it (`scripts/sweep_eps_p.py`,
-`scripts/sweep_alpha.py`, `scripts/exact_diagonalization.py`). All of it
+Documentation for `src/floquet_lindblad/solvers/cheb_ar.py` (the `ChebAr`
+solver), a **secondary** method: the main one is `KrylovSchurLindblad`
+(`docs/krylov_schur.md`). Its per-point pipeline is
+`floquet_lindblad.pipeline.solve_point_cheb_ar`; the sweeps that can run it
+(`--solver cheb_ar`) are documented in `docs/sweeps.md`. All of it
 originates from the pre-merge notebook `Chebyshev-Arnoldi.ipynb` (kept
 untracked in `Archive/`) and is GPU-only (JAX + `dynamiqs`); it cannot be
 executed on a CPU-only machine. The ATS model builders are documented in
@@ -123,67 +125,10 @@ rate = solver.rate_from_mu(mu_list[-1])
 > `src/floquet_lindblad/models/ats.py` (single source of truth, with the default
 > experimental parameters as module constants; see `docs/models_ats.md`).
 
-## 3. `scripts/` — sweep drivers
+## 3. Sweeps
 
-All three scripts share the same conventions. Every physical/numerical
-constant is a CLI argument with the historical values as defaults; `--output`
-is required; `--gpu-id` sets `CUDA_VISIBLE_DEVICES` before jax is imported
-(which is why the heavy imports happen inside `main()`). The two Chebyshev
-sweeps run in the **interaction frame**
-(`build_ats_hamiltonian_interaction` + `mesolve_fast` via `jump_ops_LdL` +
-`output_phase`; see `docs/models_ats.md`). Each sweep point is wrapped in
-`try/except`: a failure is logged and appended as an `"error"` entry so one
-bad point doesn't kill the sweep. Results are written as indented JSON via
-`floquet_lindblad.io.to_jsonable` (see `docs/io.md`).
-
-### `sweep_eps_p.py`
-
-Sweeps the pump strength `eps_p` (default `linspace(0.1, 1.1, 6)`) at fixed
-`alpha_sq`:
-
-- `kappa_b` is *not* fixed across the sweep — it is rescaled at each point as
-  `kappa_b = sin(eps_p)/sin(eps_p_init) * kappa_b_init` to keep the adiabatic
-  ratio `kappa_b / g` constant.
-- The first point — and any point right after a failure — starts cold with
-  `--m-arnoldi-first` Krylov vectors; every other point uses the smaller
-  `--m-arnoldi` and is warm-started from the previous point's `x_ritz`
-  (`warm_start=True`, i.e. continuity-tracked mu recovery). The warm vector is
-  re-expressed in the new point's eigenbasis via `transform_vectorized_state`,
-  since the interaction-frame basis depends on `eps_p`. `--no-warm-start`
-  cold-starts every point.
-
-### `sweep_alpha.py`
-
-Sweeps the cat size `alpha_sq` (= `|alpha|^2`) at fixed `eps_p` and fixed `kappa_b` (default:
-the model's `KAPPA_B`), same pipeline. Warm starting is optional and comes
-from a *previous results file* (`--warm-start-file`; its i-th `x_ritz` seeds
-the i-th point, with `warm_start=True`). The vectors are used as-is — the
-interaction-frame eigenbasis does not depend on `alpha_sq` — so the file must
-come from a run with the same `n_a`/`n_b`, ideally the same `eps_p`.
-
-### The ellipse-fit escalation ladder
-
-Both sweeps guard `first_estimation` + `setup_chebyshev` with the same
-escalation ladder (identical inline code in both scripts, per-script on
-purpose — no shared driver):
-
-1. Try `m_arnoldi_0`, then `round(m_arnoldi_0 * sqrt(2))`, then
-   `2 * m_arnoldi_0` Krylov vectors, each with the requested `--margin`.
-2. If the fit still fails, keep the last (largest) estimation and halve the
-   margin repeatedly, down to a floor of `1e-5`.
-3. If even the first estimation itself never succeeded, the point fails.
-
-The `m_arnoldi_0` and `margin` recorded in each result entry are the values
-**actually used**, not the CLI values.
-
-### `exact_diagonalization.py`
-
-Brute-force reference for small cats: sweeps `eps_p` × `alpha_sq` on a small
-Hilbert space (default `n_a=13`, `n_b=6`), builds the full one-period
-propagator with `dq.mepropagator` on the **rotating-frame** Lindbladian
-(`build_ats_hamiltonian_rotating`), diagonalizes it exactly, takes the
-second-largest-`|mu|` eigenvalue as the bit-flip eigenvalue, and converts via
-`-log(mu) / T_block`.
+Moved to `docs/sweeps.md`, which covers both pipelines; the ChebAr-only
+ellipse-fit escalation ladder is described there too.
 
 ## 4. Dependencies
 
@@ -198,12 +143,10 @@ second-largest-`|mu|` eigenvalue as the bit-flip eigenvalue, and converts via
 
 ## 5. Layout
 
-The reorganization sketched here during the merge is complete: the
-model-agnostic solver lives in `src/floquet_lindblad/solvers/cheb_ar.py`, the ATS
-builders and constants in `src/floquet_lindblad/models/ats.py` (`docs/models_ats.md`),
-the JSON helpers in `src/floquet_lindblad/io.py` (`docs/io.md`), and the CLI sweep
-drivers in `scripts/` with their OAR job files in `scripts/cluster/`. The GPU
-test notebooks — validated on the cluster — live in `tests/`; the pre-merge
-code is kept untracked in `Archive/`. The sweep scripts deliberately stay
-separate (no unified driver); when they diverge, `sweep_alpha.py` is aligned
-on `sweep_eps_p.py`.
+The model-agnostic solver lives in `src/floquet_lindblad/solvers/cheb_ar.py`,
+its per-point pipeline in `src/floquet_lindblad/pipeline/cheb_ar.py`, the ATS
+builders and constants in `src/floquet_lindblad/models/ats.py`
+(`docs/models_ats.md`), the JSON helpers in `src/floquet_lindblad/io.py`
+(`docs/io.md`). Its notebooks are `notebooks/solvers/cheb_ar*.ipynb`,
+`notebooks/benchmarks/` and `notebooks/sweeps/legacy_cheb_ar/`; the pre-merge
+code is kept untracked in `Archive/`.

@@ -28,13 +28,13 @@ Reference docs: `alice-bob/theory/hardware/anb-emulator`, under
 
 The sweep pipeline was duplicated four times, in near-identical form, across
 the two sweep scripts and the two sweep notebooks. It now lives once in
-[`src/floquet_lindblad/pipeline.py`](../src/floquet_lindblad/pipeline.py), which all four import —
+[`src/floquet_lindblad/pipeline/`](../src/floquet_lindblad/pipeline/) (then a single `pipeline.py`), which all four import —
 and which cluster workers import too, since it travels in `py_modules`.
 
 | | What it is |
 | --- | --- |
-| `floquet_lindblad.pipeline.solve_point` | One sweep point end to end. Returns **plain numpy/python** so a result can cross to a client with no jax/dynamiqs. |
-| `floquet_lindblad.pipeline.solve_point_safe` | The same, returning a failure instead of raising it. This is what a sweep submits as its task. |
+| `floquet_lindblad.pipeline.solve_point_cheb_ar` (then `solve_point`) | One sweep point end to end. Returns **plain numpy/python** so a result can cross to a client with no jax/dynamiqs. |
+| `floquet_lindblad.pipeline.solve_point_cheb_ar_safe` (then `solve_point_safe`) | The same, returning a failure instead of raising it. This is what a sweep submits as its task. |
 | `floquet_lindblad.pipeline.escalating_setup` | The m-schedule / margin-halving ladder, extracted verbatim. |
 | `scripts/sweep_*.py`, `scripts/exact_diagonalization.py` | **Cluster drivers.** They run *on* the cluster, fan out, and save to GCS. |
 | `scripts/cluster/submit.py` | The thin client that submits a driver. Replaces the OAR `.sh` files. |

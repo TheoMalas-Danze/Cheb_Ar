@@ -1,5 +1,12 @@
 """Sweep the cat size ``alpha_sq`` at fixed ``eps_p``, interaction frame.
 
+Each point is solved with Krylov-Schur by default
+(:func:`floquet_lindblad.pipeline.solve_point_ks_safe`); ``--solver cheb_ar``
+runs the Chebyshev-filtered pipeline instead. The Krylov-Schur defaults are
+band 3 of the calibrated ladder in ``notebooks/sweeps/sweep_alpha.ipynb``
+(``alpha_sq < 6.5``), used for every point: past that, or to save GPU time at
+small cats, pass the band's settings explicitly.
+
 **This is a cluster driver.** It runs *on* the anb-compute Ray cluster and fans
 the sweep out, one GPU task per ``alpha_sq``. Submit it from anb-dev with
 ``scripts/cluster/submit.py sweep_alpha``; running it on a laptop does nothing
@@ -33,14 +40,33 @@ def parse_args():
     p.add_argument("--eps-p", type=float, default=1.0)
     p.add_argument("--kappa-b", type=float, default=None,
                    help="fixed kappa_b (default: the model default)")
-    p.add_argument("--n-a", type=int, default=20)
-    p.add_argument("--n-b", type=int, default=8)
-    p.add_argument("--cheb-degree", type=int, default=6)
-    p.add_argument("--m-arnoldi-0", type=int, default=60,
-                   help="Krylov size of the unfiltered first estimation")
-    p.add_argument("--m-arnoldi", type=int, default=80,
-                   help="filtered Krylov size")
-    p.add_argument("--margin", type=float, default=5e-3)
+    p.add_argument("--solver", choices=("krylov_schur", "cheb_ar"),
+                   default="krylov_schur")
+    p.add_argument("--n-a", type=int, default=None,
+                   help="default: 35 (krylov_schur), 20 (cheb_ar)")
+    p.add_argument("--n-b", type=int, default=None,
+                   help="default: 16 (krylov_schur), 8 (cheb_ar)")
+
+    ks = p.add_argument_group("krylov_schur")
+    ks.add_argument("--m", type=int, default=50, help="restart size")
+    ks.add_argument("--k", type=int, default=12, help="vectors kept per restart")
+    ks.add_argument("--max-cycles", type=int, default=35)
+    ks.add_argument("--rtol-loop", type=float, default=1e-9)
+    ks.add_argument("--atol-loop", type=float, default=1e-10)
+    ks.add_argument("--res-tol-loop", type=float, default=1e-8)
+    ks.add_argument("--rtol-final", type=float, default=1e-11)
+    ks.add_argument("--atol-final", type=float, default=1e-12)
+    ks.add_argument("--res-tol", type=float, default=1e-10)
+    ks.add_argument("--n-blocks-final", type=int, default=50,
+                    help="length of the final Rayleigh-quotient block")
+
+    ca = p.add_argument_group("cheb_ar")
+    ca.add_argument("--cheb-degree", type=int, default=6)
+    ca.add_argument("--m-arnoldi-0", type=int, default=60,
+                    help="Krylov size of the unfiltered first estimation")
+    ca.add_argument("--m-arnoldi", type=int, default=80,
+                    help="filtered Krylov size")
+    ca.add_argument("--margin", type=float, default=5e-3)
     p.add_argument("--warm-start-file", default=None,
                    help="results JSON of a previous sweep (gs:// or local); "
                         "its i-th x_ritz seeds the i-th point of this sweep")
@@ -60,19 +86,35 @@ def main():
 
     from anb_compute import ray as acr
     from floquet_lindblad.io import from_jsonable, to_jsonable
-    from floquet_lindblad.pipeline import solve_point_safe
+    from floquet_lindblad.pipeline import solve_point_cheb_ar_safe, solve_point_ks_safe
 
-    kw = dict(
-        n_a=args.n_a,
-        n_b=args.n_b,
+    if args.solver == "krylov_schur":
+        solve_point_safe = solve_point_ks_safe
+        n_a, n_b = args.n_a or 35, args.n_b or 16
+        kw = dict(
+            m=args.m, k=args.k, max_cycles=args.max_cycles,
+            rtol_loop=args.rtol_loop, atol_loop=args.atol_loop,
+            res_tol_loop=args.res_tol_loop,
+            rtol_final=args.rtol_final, atol_final=args.atol_final,
+            res_tol=args.res_tol, n_blocks_final=args.n_blocks_final,
+        )
+    else:
+        solve_point_safe = solve_point_cheb_ar_safe
+        n_a, n_b = args.n_a or 20, args.n_b or 8
+        kw = dict(
+            cheb_degree=args.cheb_degree,
+            m_arnoldi_0=args.m_arnoldi_0,
+            m_arnoldi=args.m_arnoldi,
+            margin=args.margin,
+        )
+    kw.update(
+        n_a=n_a,
+        n_b=n_b,
         eps_p=args.eps_p,
         kappa_b=args.kappa_b,
-        cheb_degree=args.cheb_degree,
-        m_arnoldi_0=args.m_arnoldi_0,
-        m_arnoldi=args.m_arnoldi,
-        margin=args.margin,
         want_x_ritz=not args.no_x_ritz,
     )
+    print(f"solver: {args.solver}  (n_a, n_b) = ({n_a}, {n_b})")
 
     # Optional warm start: point i of the previous run seeds point i of this one.
     x_ritz_warm = []
@@ -110,9 +152,8 @@ def main():
         except Exception as exc:  # noqa: BLE001 - infra failure of one task
             print(f"alpha_sq = {alpha_sq} LOST: {type(exc).__name__}: {exc}")
             results.append({
-                "alpha_sq": alpha_sq, "eps_p": args.eps_p, "n_a": args.n_a,
-                "n_b": args.n_b, "cheb_degree": args.cheb_degree,
-                "m_arnoldi_0": args.m_arnoldi_0, "m_arnoldi": args.m_arnoldi,
+                "alpha_sq": alpha_sq, "eps_p": args.eps_p, "n_a": n_a,
+                "n_b": n_b, "solver": args.solver,
                 "error": f"{type(exc).__name__}: {exc}",
             })
             continue
@@ -120,11 +161,13 @@ def main():
             print(f"alpha_sq = {alpha_sq} FAILED: {result['error']}")
         else:
             print(f"alpha_sq = {alpha_sq}  rate_bf = {result['rate_bf']}  "
-                  f"res_rel = {result['res']['res_rel']}  "
+                  f"res_rel = {_res_rel(result)}  "
                   f"({result['timings_s']['total']:.0f} s)")
         results.append(result)
 
     results.sort(key=lambda d: d["alpha_sq"])
+    for r in results:
+        r.setdefault("solver", args.solver)  # which pipeline wrote it
 
     # The job's disk dies with the job, so stage locally then upload.
     with tempfile.TemporaryDirectory() as tmp:
@@ -134,6 +177,11 @@ def main():
         uri = args.output if args.output.endswith("/") else args.output + "/"
         acr.save_output(local, uri)
     print(f"saved {len(results)} point(s) to {uri}results.json")
+
+
+def _res_rel(result):
+    """The final relative residual, wherever the solver's pipeline puts it."""
+    return result["res_rel_n"] if "res_rel_n" in result else result["res"]["res_rel"]
 
 
 if __name__ == "__main__":

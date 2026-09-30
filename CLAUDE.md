@@ -9,8 +9,12 @@ Simulation code for a driven, dissipative full-ATS (Asymmetrically Threaded
 SQUID) system: two coupled bosonic modes, Floquet driving, Lindblad
 dissipation. The main physics question is the **bit-flip rate** of the
 system, extracted as the leading eigenvalue of the one-period propagator of
-the master equation via a custom Chebyshev-accelerated Arnoldi solver
-(`ChebAr`, see `docs/cheb_ar.md`).
+the master equation. The **main solver is the thick-restarted Arnoldi
+`KrylovSchurLindblad`** (`docs/krylov_schur.md`), run per point through
+`floquet_lindblad.pipeline.solve_point_ks`. The Chebyshev-filtered `ChebAr`
+and the plain `ArnoldiLindblad` are kept as secondary methods and
+cross-checks. `alpha_sq` is the cat size `|alpha|^2` (fixed 2026-09; older
+results and reports use twice that, see `docs/models_ats.md` §2).
 
 This repo is a merge of an older codebase and a newer one; some duplication,
 inconsistent conventions, and dead code are expected until cleanup is done.
@@ -39,7 +43,8 @@ src/floquet_lindblad/
   solvers/      # model-agnostic numerics: cheb_ar.py (ChebAr), arnoldi_no_cheb.py
                 #   (ArnoldiLindblad), krylov_schur.py (KrylovSchurLindblad)
   models/       # physical model builders: ats.py (3 frame variants + constants)
-  pipeline.py   # one sweep point end to end (imported by cluster workers)
+  pipeline/     # one sweep point end to end, per solver (imported by cluster workers):
+                #   krylov_schur.py (main), cheb_ar.py
   io.py         # JSON (de)serialization helpers for sweep results
 scripts/        # sweep/entry-point scripts (CLI-driven, no hardcoded paths)
   cluster/      # job submission + cluster probes/smoke tests (smoke_gpu, probe_*, smoke_sweeps)
@@ -81,14 +86,16 @@ Installable package: `pip install -e .` (that's what requirements.txt does).
 
 ## Where to look for more detail
 
-- `docs/cheb_ar.md` — full reference for the `ChebAr` solver and the sweep
-  scripts (algorithm, method table, ellipse-fit escalation ladder).
+- `docs/krylov_schur.md` — the main solver, `KrylovSchurLindblad` (iterates
+  on the one-period propagator, restarts keeping the slow cluster, stops on
+  the residual); its CPU test `tests/test_krylov_schur_cpu.py` is the one
+  piece of solver numerics that can be run off the cluster.
+- `docs/sweeps.md` — the per-solver pipelines, the sweep scripts
+  (`--solver`) and the sweep notebooks.
+- `docs/cheb_ar.md` — the secondary `ChebAr` solver (algorithm, method
+  table).
 - `docs/arnoldi_no_cheb.md` — the unfiltered `ArnoldiLindblad` solver, the
   reference check on `ChebAr`'s filtered result.
-- `docs/krylov_schur.md` — the thick-restarted `KrylovSchurLindblad` solver
-  (iterates on the one-period propagator, restarts keeping the slow cluster,
-  stops on the residual); its CPU test `tests/test_krylov_schur_cpu.py` is the
-  one piece of solver numerics that can be run off the cluster.
 - `docs/models_ats.md` — the three frame variants of the ATS builder in
   `src/floquet_lindblad/models/ats.py` and the default experimental constants
   (single source of truth).

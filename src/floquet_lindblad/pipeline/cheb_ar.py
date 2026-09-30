@@ -1,4 +1,9 @@
-"""One sweep point, end to end: build -> filter -> Arnoldi -> rate -> residual.
+"""One sweep point with ``ChebAr``: build -> filter -> Arnoldi -> rate -> residual.
+
+The secondary pipeline; the main one is
+:mod:`floquet_lindblad.pipeline.krylov_schur`. The two share their calling
+contract (sweep coordinates, ``x0`` / ``V_prev`` warm start, ``want_x_ritz`` /
+``want_V``), so a sweep driver can switch between them.
 
 This used to be copy-pasted four times, in near-identical form, across
 ``scripts/sweep_alpha.py``, ``scripts/sweep_eps_p.py``,
@@ -10,15 +15,17 @@ itself.
 
 It lives in the package rather than in the scripts because cluster workers
 import it: the sweep drivers ship ``floquet_lindblad`` through the Ray ``runtime_env``
-and each task calls :func:`solve_point`.
+and each task calls :func:`solve_point_cheb_ar`.
 
-Everything :func:`solve_point` returns is plain numpy / python — no jax arrays,
+Everything :func:`solve_point_cheb_ar` returns is plain numpy / python — no jax arrays,
 no dynamiqs objects — so a result can cross a process boundary (cloudpickle to
 a Ray driver, JSON to disk, a notebook client that has neither library
 installed) without the receiver needing the GPU stack.
 """
 
 import numpy as np
+
+from floquet_lindblad.pipeline.common import error_entry
 
 DEFAULT_MIN_MARGIN = 1e-5
 
@@ -97,7 +104,7 @@ def escalating_setup(
     raise last_exc
 
 
-def solve_point(
+def solve_point_cheb_ar(
     *,
     n_a,
     n_b,
@@ -242,13 +249,6 @@ def solve_point(
     return out
 
 
-def error_entry(exc, **coords):
-    """Uniform placeholder for a point that failed, matching `solve_point` keys."""
-    entry = {k: v for k, v in coords.items()}
-    entry["error"] = f"{type(exc).__name__}: {exc}"
-    return entry
-
-
 #: Keys copied onto an `error_entry` so a failed point still says where it was.
 _COORD_KEYS = (
     "alpha_sq", "eps_p", "kappa_b", "n_a", "n_b",
@@ -256,8 +256,8 @@ _COORD_KEYS = (
 )
 
 
-def solve_point_safe(**kwargs):
-    """`solve_point`, returning a failure instead of raising it.
+def solve_point_cheb_ar_safe(**kwargs):
+    """`solve_point_cheb_ar`, returning a failure instead of raising it.
 
     This is what a sweep should submit as its Ray task. Two reasons the
     exception must not escape:
@@ -271,6 +271,6 @@ def solve_point_safe(**kwargs):
     still retried by Ray; the driver handles those separately.
     """
     try:
-        return solve_point(**kwargs)
+        return solve_point_cheb_ar(**kwargs)
     except Exception as exc:  # noqa: BLE001 - one bad point must not sink the sweep
         return error_entry(exc, **{k: kwargs.get(k) for k in _COORD_KEYS})

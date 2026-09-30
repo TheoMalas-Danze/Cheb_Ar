@@ -1,5 +1,11 @@
 # Thick-restarted Arnoldi (Krylov–Schur) bit-flip rate solver
 
+**The main solver of the repo**; `ChebAr` (`docs/cheb_ar.md`) and
+`ArnoldiLindblad` (`docs/arnoldi_no_cheb.md`) are kept as secondary methods.
+Its per-point pipeline is `floquet_lindblad.pipeline.solve_point_ks`
+(`src/floquet_lindblad/pipeline/krylov_schur.py`); the sweeps are in
+`docs/sweeps.md`.
+
 Documentation for `src/floquet_lindblad/solvers/krylov_schur.py` (the
 `KrylovSchurLindblad` solver), the cluster notebook
 `notebooks/solvers/krylov_schur.ipynb` and the CPU test `tests/test_krylov_schur_cpu.py`.
@@ -147,11 +153,11 @@ in `history`; the basis does not.
 `notebooks/sweeps/sweep_alpha.ipynb` is the sweep form of the same
 thing: the structure of `notebooks/sweeps/legacy_cheb_ar/sweep_alpha.ipynb` (one job, one GPU task
 per `alpha_sq`, the perturbative comparison at the end) with this solver in
-place of the `ChebAr` pipeline. There is no `pipeline.solve_point` for
-`KrylovSchurLindblad`, so the per-point work is a notebook-level
-`solve_point_ks`, shipped by value to each task; it returns the rates, the
-residuals, the cost and the two Fock marginals, never the basis or the Ritz
-vector. Truncation and tolerances follow a ladder in `alpha_sq`
+place of the `ChebAr` pipeline. The per-point work is
+`floquet_lindblad.pipeline.solve_point_ks` (it was a notebook-level function,
+copied into each sweep notebook, until 2026-09); it returns the rates, the
+residuals, the cost and the two Fock marginals, and the Ritz vector and
+eigenbasis only when asked (`want_x_ritz` / `want_V`, for a warm chain). Truncation and tolerances follow a ladder in `alpha_sq`
 (`(n_a, n_b)` = 20/10, 25/12, 35/16, 38/19 at `alpha_sq` < 2, 3.5, 6.5, and
 above), with
 `rtol_final` tightening from `1e-9` to `1e-12`, `res_tol` one decade above it,
