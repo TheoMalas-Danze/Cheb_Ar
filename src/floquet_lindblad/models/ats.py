@@ -18,6 +18,10 @@ experimental parameters (Josephson energy, phases, frequencies); sweep scripts
 should import them rather than redefine them. Historical note: the rotating
 variant was extracted with a default ``epsilon_p=0.3`` while the other two use
 ``0.1`` — the per-variant defaults are preserved as found.
+
+``alpha_sq`` is the cat size: |alpha|^2 = epsilon_d / (2 g). Runs before 2026-09 used
+``epsilon_d = 2 alpha_sq g2``, i.e. |alpha|^2 ~ alpha_sq / 2; their result files
+are told apart by ``params``: epsilon_d / (2 g) is the true cat size in both.
 """
 
 import jax
@@ -54,7 +58,11 @@ def _derived_params(alpha_sq, w_a, kappa_b, E_J, phi_a, phi_b, epsilon_p, n_peri
     kappa_2 = 4 * g**2 / kappa_b
     kappa_1 = 0.005 * kappa_2
 
-    epsilon_d = 2 * alpha_sq * g2
+    # alpha_sq is the cat size |alpha|^2. The drive epsilon_d cos(w_b t)(b + b^dag)
+    # is epsilon_d / 2 after the RWA, and the Josephson term's two-photon
+    # coupling is g (not g2), so |alpha|^2 = epsilon_d / (2 g) at leading order.
+    # Until 2026-09 this read `2 * alpha_sq * g2`, i.e. |alpha|^2 ~ alpha_sq / 2.
+    epsilon_d = 2 * alpha_sq * g
 
     T_drive = 2 * jnp.pi / w_a
     T_block = n_periods * T_drive
@@ -88,7 +96,7 @@ def _two_mode_operators(n_a, n_b):
 def build_ats_hamiltonian(
     n_a=20,
     n_b=11,
-    alpha_sq=8.5,
+    alpha_sq=4.25,
     w_a=W_A,
     kappa_b=KAPPA_B,
     E_J=E_J,
@@ -147,7 +155,7 @@ def build_ats_hamiltonian(
 def build_ats_hamiltonian_rotating(
     n_a=20,
     n_b=11,
-    alpha_sq=8.5,
+    alpha_sq=4.25,
     w_a=W_A,
     kappa_b=KAPPA_B,
     E_J=E_J,
@@ -207,7 +215,7 @@ def build_ats_hamiltonian_rotating(
 def build_ats_hamiltonian_interaction(
     n_a=25,
     n_b=11,
-    alpha_sq=8.5,
+    alpha_sq=4.25,
     w_a=W_A,
     kappa_b=KAPPA_B,
     E_J=E_J,

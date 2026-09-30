@@ -1,5 +1,10 @@
 # Migrating Cheb_Ar from OAR/`chuc` to the anb-compute Ray cluster
 
+> **Cat-size convention.** The runs below predate the 2026-09 fix of
+> `epsilon_d` (see `docs/models_ats.md` §2): here `alpha_sq` is twice the
+> cat size, `|alpha|^2 ~ alpha_sq / 2`. The same physical points are now
+> `alpha_sq` = half the values quoted.
+
 Everything below marked *measured* was verified by running against the live
 cluster on 2026-09-17 (`scripts/cluster/smoke_gpu.py`, `scripts/cluster/probe_dq.py`,
 `scripts/cluster/probe_fork.py`, `scripts/cluster/smoke_sweeps.py`).

@@ -24,7 +24,7 @@ difference is the iteration:
   total number of applications;
 - it stops on the **residual norm** of the target Ritz vector. The Ritz value
   is a poor stopping test here: `1 - mu` per period is `2.5e-6` at
-  `alpha_sq = 6` and smaller for larger cats, i.e. at the level of the
+  `alpha_sq = 3` and smaller for larger cats, i.e. at the level of the
   integrator tolerance;
 - the **rate** comes from a Rayleigh quotient of the converged eigenvector on
   a long block (`P^10`) at tight integrator tolerance, which resolves
@@ -137,7 +137,7 @@ too large and memory grows for no gain.
 `notebooks/solvers/krylov_schur.ipynb` mirrors `notebooks/solvers/arnoldi_no_cheb.ipynb`:
 the same bootstrap/auth cell (keep them in sync), one picklable
 `run_krylov_schur` handed to `acr.run` with `num_gpus=1`, plain numpy back.
-It runs `alpha_sq = 6` on `(n_a, n_b) = (25, 11)` twice — loop at
+It runs `alpha_sq = 3` on `(n_a, n_b) = (25, 11)` twice — loop at
 `1e-7/1e-8` then polish at `1e-9/1e-10`, and tight throughout — and compares
 the 10-block Rayleigh-quotient rate with `reports/benchmark_methods.md`
 (`arnoldi`, 6-period block, `m = 90`: `9.910757e-06` after 540 period
@@ -152,10 +152,11 @@ place of the `ChebAr` pipeline. There is no `pipeline.solve_point` for
 `solve_point_ks`, shipped by value to each task; it returns the rates, the
 residuals, the cost and the two Fock marginals, never the basis or the Ritz
 vector. Truncation and tolerances follow a ladder in `alpha_sq`
-(`(n_a, n_b)` = 15/7, 25/12, 35/16, 40/20 at `alpha_sq` < 5, 7, 10, 14), with
+(`(n_a, n_b)` = 20/10, 25/12, 35/16, 38/19 at `alpha_sq` < 2, 3.5, 6.5, and
+above), with
 `rtol_final` tightening from `1e-9` to `1e-12`, `res_tol` one decade above it,
 and `n_blocks_final` growing 10 → 100 — because `1 - mu` per period *is* the
-rate, ~2.5e-6 at `alpha_sq = 6` and falling like `exp(-alpha_sq)`, so the long
+rate, ~2.5e-6 at `alpha_sq = 3` and falling like `exp(-2 alpha_sq)`, so the long
 block is what keeps it resolvable above the integrator noise.
 
 `notebooks/sweeps/sweep_eps_p.ipynb` is the same thing for the `eps_p`

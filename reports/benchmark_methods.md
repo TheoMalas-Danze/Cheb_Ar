@@ -1,5 +1,10 @@
 # Benchmark: ChebAr vs plain Arnoldi vs naive Arnoldi
 
+> **Cat-size convention.** The runs below predate the 2026-09 fix of
+> `epsilon_d` (see `docs/models_ats.md` §2): here `alpha_sq` is twice the
+> cat size, `|alpha|^2 ~ alpha_sq / 2`. The same physical points are now
+> `alpha_sq` = half the values quoted.
+
 Source: `notebooks/benchmarks/benchmark_methods.ipynb`. Three ways to estimate the bit-flip
 rate (decay rate of the slowest non-trivial eigenvalue of the
 trace-projected Floquet propagator), compared at `alpha_sq = 3` and

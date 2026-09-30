@@ -31,7 +31,7 @@ DYNAMIQS = os.environ.get("DYNAMIQS_SRC") or str(REPO.parent / "dynamiqs" / "dyn
 # "got multiple values for keyword argument" TypeError.
 SMALL = dict(n_a=15, n_b=6, cheb_degree=6,
              m_arnoldi_0=40, m_arnoldi=60, margin=1e-2)
-CHAIN_ALPHA_SQ = 4.0
+CHAIN_ALPHA_SQ = 2.0
 
 
 def driver(settings):
@@ -45,7 +45,7 @@ def driver(settings):
     report = {}
 
     # --- 1. independent fan-out (alpha_sq shape) -------------------------
-    alphas = [3.0, 4.0, 5.0]
+    alphas = [1.5, 2.0, 2.5]
     refs = {
         acr.submit(solve_point_safe, alpha_sq=a, eps_p=0.1, want_x_ritz=False,
                    num_gpus=1, num_cpus=8, **settings): a
@@ -66,7 +66,7 @@ def driver(settings):
         warm = prev is not None
         r = ray.get(acr.submit(
             solve_point_safe,
-            alpha_sq=4.0,
+            alpha_sq=2.0,
             eps_p=eps_p,
             kappa_b=float(np.sin(eps_p) / np.sin(0.1) * (5 / 10.4)),
             x0=prev["x_ritz"] if warm else None,
@@ -85,7 +85,7 @@ def driver(settings):
 
     # --- 3. failure path: must return, not raise -------------------------
     bad = ray.get(acr.submit(
-        solve_point_safe, alpha_sq=4.0, eps_p=0.1,
+        solve_point_safe, alpha_sq=2.0, eps_p=0.1,
         n_a=0, n_b=0,  # degenerate: blows up inside the builder
         cheb_degree=6, m_arnoldi_0=8, m_arnoldi=8, margin=1e-2,
         num_gpus=1, num_cpus=8,

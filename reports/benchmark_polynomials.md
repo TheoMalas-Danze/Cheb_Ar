@@ -1,5 +1,10 @@
 # Benchmark: polynomial filters in U -- U^n vs T_n(U)
 
+> **Cat-size convention.** The runs below predate the 2026-09 fix of
+> `epsilon_d` (see `docs/models_ats.md` §2): here `alpha_sq` is twice the
+> cat size, `|alpha|^2 ~ alpha_sq / 2`. The same physical points are now
+> `alpha_sq` = half the values quoted.
+
 Sources: `notebooks/benchmarks/benchmark_polynomials.ipynb` (`alpha_sq = 6`) and
 `notebooks/benchmarks/benchmark_polynomials_small_cat.ipynb` (`alpha_sq = 3`). Same code, only
 `alpha_sq` differs.

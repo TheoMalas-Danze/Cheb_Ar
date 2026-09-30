@@ -88,10 +88,10 @@ pickled through GCS. `run_arnoldi` returns `H` (kilobytes) and `x_ritz`
 (about 5.8 MB) instead. This is the main practical difference from the
 pre-cluster notebooks, which simply kept everything in the kernel.
 
-Defaults are `n_a=40, n_b=15, alpha_sq=10, epsilon_p=0.1, n_periods=6,
+Defaults are `n_a=40, n_b=15, alpha_sq=5, epsilon_p=0.1, n_periods=6,
 m_arnoldi=90`, carried over from `arnoldi_no_cheb/test_ar_no_cheb.ipynb`.
 Physics constants are **not** arguments — they come from
 `floquet_lindblad.models.ats`, which is their single source of truth. Note that
 `n_a=40, n_b=15` is a considerably larger space than the `ChebAr` notebook's
 `(25, 11)`; see the Fock-truncation discussion in `notebooks/solvers/cheb_ar.ipynb`
-for why that is the safer choice at `alpha_sq=10`.
+for why that is the safer choice at `alpha_sq=5`.

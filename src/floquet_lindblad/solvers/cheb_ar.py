@@ -13,7 +13,7 @@ Typical use
 >>> from floquet_lindblad import ChebAr
 >>> # model builders (e.g. the ATS Hamiltonian) live outside the solver;
 >>> # they will be collected in ``floquet_lindblad.models``
->>> H, jump_ops, T_block, _ = build_ats_hamiltonian(alpha_sq=8.5)
+>>> H, jump_ops, T_block, _ = build_ats_hamiltonian(alpha_sq=4.25)
 >>> solver = ChebAr(H, jump_ops, T_block, dims=(20, 11), cheb_degree=6)
 >>> x0 = solver.make_x0(seed=0)
 >>>

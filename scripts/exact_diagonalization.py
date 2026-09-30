@@ -26,8 +26,8 @@ def parse_args():
     p.add_argument("--eps-p", type=float, nargs="+", default=[0.6, 0.8, 1.0],
                    help="pump-strength sweep values")
     p.add_argument("--alpha-sq", type=float, nargs="+",
-                   default=[3, 3.5, 4, 4.5, 5, 5.5, 6],
-                   help="cat-size sweep values")
+                   default=[1.5, 1.75, 2, 2.25, 2.5, 2.75, 3],
+                   help="cat-size (|alpha|^2) sweep values")
     p.add_argument("--n-a", type=int, default=13)
     p.add_argument("--n-b", type=int, default=6)
     p.add_argument("--output", required=True,

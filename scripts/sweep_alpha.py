@@ -29,7 +29,7 @@ import tempfile
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--alpha-sq", type=float, nargs="+",
-                   default=[3, 4, 5, 6, 7, 8], help="sweep values")
+                   default=[1.5, 2, 2.5, 3, 3.5, 4], help="sweep values (|alpha|^2)")
     p.add_argument("--eps-p", type=float, default=1.0)
     p.add_argument("--kappa-b", type=float, default=None,
                    help="fixed kappa_b (default: the model default)")

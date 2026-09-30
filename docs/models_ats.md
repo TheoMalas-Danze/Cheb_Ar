@@ -26,11 +26,28 @@ formulas below) without flagging it.
 Shared by all three builders; returned as the `params` bookkeeping dict stored
 alongside every sweep result:
 
-- `g = sin(epsilon_p) * E_J * phi_a**2 * phi_b` (two-photon coupling)
-- `g2 = J_1(epsilon_p) * E_J * phi_a**2 * phi_b` (`scipy.special.jv`)
+- `g = sin(epsilon_p) * E_J * phi_a**2 * phi_b` (two-photon coupling: the
+  `a†² b` coefficient of the Josephson term's cubic order)
+- `g2 = J_1(epsilon_p) * E_J * phi_a**2 * phi_b` (`scipy.special.jv`; kept
+  for reference only, it enters no Hamiltonian)
 - `kappa_2 = 4*g**2 / kappa_b` (engineered two-photon dissipation)
 - `kappa_1 = 0.005 * kappa_2` (single-photon loss)
-- `epsilon_d = 2 * alpha_sq * g2` (drive amplitude fixing the cat size)
+- `epsilon_d = 2 * alpha_sq * g` (drive amplitude fixing the cat size)
+
+**`alpha_sq` is the cat size `|alpha|^2`.** The drive `epsilon_d cos(w_b t)
+(b + b†)` is `epsilon_d / 2` after the RWA, and adiabatic elimination of the
+buffer gives `|alpha|^2 = (epsilon_d / 2) / g = alpha_sq` — at leading order:
+the full `sinm`, Kerr and Stark shifts renormalise it by a few percent, and the
+measured `<a†a>` of the Ritz state is the ground truth. With `kappa_b ∝
+sin(eps_p)` (the `eps_p` sweeps), `epsilon_d / kappa_b` is then exactly
+constant along the sweep.
+
+Until 2026-09 this read `epsilon_d = 2 * alpha_sq * g2`, which gives `|alpha|^2
+= alpha_sq * J_1(eps_p) / sin(eps_p)`, i.e. `alpha_sq / 2` (0.500 at `eps_p =
+0.1`, 0.528 at 1.1). Every `alpha_sq` value in the repo was halved with the
+fix, so runs keep their physical point; older result files and the reports
+in `reports/` use the old numbers. In any result file, `params["epsilon_d"] /
+(2 * params["g"])` is the true cat size, whichever convention wrote it.
 - `T_drive = 2*pi / w_a`, `T_block = n_periods * T_drive` (Floquet block)
 
 ## 3. The three frame variants

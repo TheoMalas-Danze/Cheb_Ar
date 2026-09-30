@@ -31,7 +31,7 @@ def parse_args():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--eps-p", type=float, nargs="+", default=None,
                    help="sweep values (default: 6 points linspace(0.1, 1.1))")
-    p.add_argument("--alpha-sq", type=float, default=6.0)
+    p.add_argument("--alpha-sq", type=float, default=3.0)
     p.add_argument("--n-a", type=int, default=20)
     p.add_argument("--n-b", type=int, default=8)
     p.add_argument("--cheb-degree", type=int, default=6)

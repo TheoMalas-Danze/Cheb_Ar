@@ -105,7 +105,7 @@ solver = ChebAr(Ham, jump_ops, T_block, jump_ops_LdL=None, output_phase=None,
 from floquet_lindblad import ChebAr
 from floquet_lindblad.models.ats import build_ats_hamiltonian
 
-H, jump_ops, T_block, _ = build_ats_hamiltonian(alpha_sq=8.5)
+H, jump_ops, T_block, _ = build_ats_hamiltonian(alpha_sq=4.25)
 solver = ChebAr(H, jump_ops, T_block, dims=(20, 11), cheb_degree=6)
 x0 = solver.make_x0(seed=0)
 
@@ -143,7 +143,7 @@ Sweeps the pump strength `eps_p` (default `linspace(0.1, 1.1, 6)`) at fixed
 
 - `kappa_b` is *not* fixed across the sweep — it is rescaled at each point as
   `kappa_b = sin(eps_p)/sin(eps_p_init) * kappa_b_init` to keep the adiabatic
-  ratio `kappa_b / g` roughly constant.
+  ratio `kappa_b / g` constant.
 - The first point — and any point right after a failure — starts cold with
   `--m-arnoldi-first` Krylov vectors; every other point uses the smaller
   `--m-arnoldi` and is warm-started from the previous point's `x_ritz`
@@ -154,7 +154,7 @@ Sweeps the pump strength `eps_p` (default `linspace(0.1, 1.1, 6)`) at fixed
 
 ### `sweep_alpha.py`
 
-Sweeps the cat size `alpha_sq` at fixed `eps_p` and fixed `kappa_b` (default:
+Sweeps the cat size `alpha_sq` (= `|alpha|^2`) at fixed `eps_p` and fixed `kappa_b` (default:
 the model's `KAPPA_B`), same pipeline. Warm starting is optional and comes
 from a *previous results file* (`--warm-start-file`; its i-th `x_ritz` seeds
 the i-th point, with `warm_start=True`). The vectors are used as-is — the
