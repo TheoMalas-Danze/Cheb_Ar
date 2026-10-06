@@ -10,7 +10,7 @@ This used to be copy-pasted four times, in near-identical form, across
 ``notebooks/sweeps/legacy_cheb_ar/sweep_alpha.ipynb`` and ``notebooks/sweeps/legacy_cheb_ar/sweep_eps_p.ipynb``. The two
 sweeps differ only in *what* varies along them (``alpha_sq`` at fixed basis, or
 ``eps_p`` with a basis that moves and so needs
-:func:`~floquet_lindblad.models.ats.transform_vectorized_state`), never in the pipeline
+:func:`~floquet_lindblad.models.base.transform_vectorized_state`), never in the pipeline
 itself.
 
 It lives in the package rather than in the scripts because cluster workers
@@ -153,11 +153,8 @@ def solve_point_cheb_ar(
     """
     import time
 
-    from floquet_lindblad.models.ats import (
-        KAPPA_B,
-        build_ats_hamiltonian_interaction,
-        transform_vectorized_state,
-    )
+    from floquet_lindblad.models.ats import KAPPA_B, build_ats_hamiltonian_interaction
+    from floquet_lindblad.models.base import transform_vectorized_state
     from floquet_lindblad.solvers.cheb_ar import ChebAr
 
     def py(v):

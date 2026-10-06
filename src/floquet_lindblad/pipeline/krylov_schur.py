@@ -72,12 +72,12 @@ def solve_point_ks(
         Buffer loss rate; the builder's default (``ats.KAPPA_B``) when omitted.
         The ``eps_p`` sweeps rescale it along the sweep.
     hamiltonian : str or callable
-        Which Lindbladian to build: a key of ``ats.HAMILTONIANS`` (``"lab"``,
-        ``"rotating"``, ``"interaction"``, ``"parity_protected"``,
-        ``"compensated_shift"``), or a builder with the same keyword
-        signature. A builder returning ``(Ham, jump_ops, T_block, params)``
-        runs in its own (Fock) basis: no ``L^dag L`` operators, no output
-        phase, no frame rotation for the warm start or the Fock weights.
+        Which Lindbladian to build: a key of ``models.HAMILTONIANS``
+        (``"lab"``, ``"rotating"``, ``"interaction"``, ``"parity_protected"``,
+        ``"compensated_shift"``), or a builder with the same keyword signature
+        returning a :class:`~floquet_lindblad.models.base.Lindbladian`. One
+        without a frame transformation (``V is None``) runs in the Fock basis:
+        no frame rotation for the warm start or the Fock weights.
     n_blocks_final, n_blocks_auto, rq_resolution
         Length of the final Rayleigh-quotient block. Fixed at
         ``n_blocks_final`` by default; with ``n_blocks_auto`` it is shortened
@@ -110,7 +110,8 @@ def solve_point_ks(
 
     import jax
 
-    from floquet_lindblad.models.ats import HAMILTONIANS, transform_vectorized_state
+    from floquet_lindblad.models import HAMILTONIANS
+    from floquet_lindblad.models.base import transform_vectorized_state
     from floquet_lindblad.solvers.krylov_schur import KrylovSchurLindblad
 
     def py(v):
@@ -132,7 +133,7 @@ def solve_point_ks(
         builder, hamiltonian = hamiltonian, hamiltonian.__name__
     else:
         builder = HAMILTONIANS[hamiltonian]
-    built = builder(
+    lind = builder(
         n_a=n_a,
         n_b=n_b,
         alpha_sq=alpha_sq,
@@ -140,20 +141,16 @@ def solve_point_ks(
         n_periods=1,
         **({} if kappa_b is None else {"kappa_b": kappa_b}),
     )
-    if len(built) == 7:  # interaction frame
-        H, jump_ops, jump_ops_LdL, output_phase, V, T_block, params = built
-    else:  # lab / rotating frame: the state lives in the Fock basis
-        H, jump_ops, T_block, params = built
-        jump_ops_LdL = output_phase = V = None
+    V, T_block, params = lind.V, lind.T_block, lind.params
     kappa_b = params["kappa_b"]
 
     solver = KrylovSchurLindblad(
-        H,
-        jump_ops,
+        lind.H,
+        lind.jump_ops,
         T_block,
-        jump_ops_LdL=jump_ops_LdL,
+        jump_ops_LdL=lind.jump_ops_LdL,
         dims=dims,
-        output_phase=output_phase,
+        output_phase=lind.output_phase,
         rtol=rtol_loop,
         atol=atol_loop,
     )

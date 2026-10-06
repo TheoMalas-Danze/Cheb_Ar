@@ -24,10 +24,15 @@ variant was extracted with a default ``epsilon_p=0.3`` while the other two use
 are told apart by ``params``: epsilon_d / (2 g) is the true cat size in both.
 """
 
+import functools
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 from scipy.special import jv
+
+# Re-exported: notebooks and scripts import it from here.
+from floquet_lindblad.models.base import Lindbladian, transform_vectorized_state
 
 jax.config.update("jax_enable_x64", True)
 
@@ -516,35 +521,40 @@ def build_ats_hamiltonian_interaction_compensated_shift(
     return H_I, jump_ops_I, jump_ops_LdL_I, output_phase, V, T_block, params
 
 
-def transform_vectorized_state(x_vec, V_from, V_to):
-    """Re-express a vectorized operator between two interaction-frame bases.
+def _fock_frame(builder):
+    """Registry adapter for a builder returning ``(Ham, jump_ops, T_block, params)``."""
 
-    ``x_vec`` is a column-major vectorized operator written in the eigenbasis
-    ``V_from`` (as returned by :func:`build_ats_hamiltonian_interaction`); the
-    result is the same operator written in the eigenbasis ``V_to``. Used to
-    warm-start a sweep point from the previous point's Ritz vector when the
-    static Hamiltonian — hence its eigenbasis — changes along the sweep
-    (e.g. an ``epsilon_p`` sweep; for an ``alpha_sq`` sweep the basis is
-    unchanged and this reduces to the identity).
-    """
-    N = V_from.shape[0]
-    rho = np.asarray(x_vec).reshape((N, N), order="F")
-    rho_lab = V_from @ rho @ V_from.conj().T
-    rho_to = V_to.conj().T @ rho_lab @ V_to
-    return jnp.array(rho_to.reshape(-1, order="F"))
+    @functools.wraps(builder)
+    def build(**kwargs):
+        H, jump_ops, T_block, params = builder(**kwargs)
+        return Lindbladian(H, jump_ops, T_block, params)
+
+    return build
 
 
+def _interaction_frame(builder):
+    """Registry adapter for a builder returning the interaction-frame 7-tuple."""
+
+    @functools.wraps(builder)
+    def build(**kwargs):
+        H, jump_ops, jump_ops_LdL, output_phase, V, T_block, params = builder(**kwargs)
+        return Lindbladian(H, jump_ops, T_block, params, jump_ops_LdL, output_phase, V)
+
+    return build
 
 
-#: Builders by name, for pipelines that take the frame as a parameter
-#: (``solve_point_ks(hamiltonian=...)``). All share the keyword signature
-#: ``(n_a, n_b, alpha_sq, kappa_b, epsilon_p, n_periods, ...)``; the lab and
-#: rotating ones return ``(Ham, jump_ops, T_block, params)``, the interaction
-#: ones ``(H_I, jump_ops_I, jump_ops_LdL_I, output_phase, V, T_block, params)``.
+#: Builders by name, for pipelines that take the model as a parameter
+#: (``solve_point_ks(hamiltonian=...)``). Each takes the keyword signature
+#: ``(n_a, n_b, alpha_sq, kappa_b, epsilon_p, n_periods, ...)`` of the builder
+#: it wraps and returns a :class:`~floquet_lindblad.models.base.Lindbladian`.
 HAMILTONIANS = {
-    "lab": build_ats_hamiltonian,
-    "rotating": build_ats_hamiltonian_rotating,
-    "interaction": build_ats_hamiltonian_interaction,
-    "parity_protected": build_ats_parity_protected_hamiltonian_interaction,
-    "compensated_shift": build_ats_hamiltonian_interaction_compensated_shift,
+    "lab": _fock_frame(build_ats_hamiltonian),
+    "rotating": _fock_frame(build_ats_hamiltonian_rotating),
+    "interaction": _interaction_frame(build_ats_hamiltonian_interaction),
+    "parity_protected": _interaction_frame(
+        build_ats_parity_protected_hamiltonian_interaction
+    ),
+    "compensated_shift": _interaction_frame(
+        build_ats_hamiltonian_interaction_compensated_shift
+    ),
 }
