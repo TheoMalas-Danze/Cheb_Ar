@@ -55,6 +55,7 @@ def _derived_params(alpha_sq, w_a, kappa_b, E_J, phi_a, phi_b, epsilon_p, n_peri
     stored alongside every sweep result.
     """
     w_b = 2 * w_a
+    w_d = w_b
 
     # couplings derived from the pump
     g = np.sin(epsilon_p) * E_J * phi_a**2 * phi_b
@@ -81,6 +82,7 @@ def _derived_params(alpha_sq, w_a, kappa_b, E_J, phi_a, phi_b, epsilon_p, n_peri
         "epsilon_d": epsilon_d,
         "w_a": w_a,
         "w_b": w_b,
+        "w_d": w_d,
         "T_drive": T_drive,
     }
     return params, T_block
@@ -418,7 +420,7 @@ def build_ats_hamiltonian_interaction_compensated_shift(
     n_a=25,
     n_b=11,
     alpha_sq=4.25,
-    w_a=W_A,
+    w_d=2*W_A,
     kappa_b=KAPPA_B,
     E_J=E_J,
     phi_a=PHI_A,
@@ -426,8 +428,18 @@ def build_ats_hamiltonian_interaction_compensated_shift(
     epsilon_p=0.1,
     n_periods=1,
 ):
-    """Build the driven parity protected full-ATS Lindbladian in the interaction frame, 
+    """Build the driven parity protected full-ATS Lindbladian in the interaction frame,
     taking the shift of frequencies at RWA order 2 into account.
+
+    The drive frequency ``w_d`` is the input; the bare frequencies are
+    detuned by the second-order RWA shifts ``D_a``, ``D_b`` so that the
+    *dressed* ones are on resonance:
+
+        w_a = w_d / 2 - D_a  ->  w_a + D_a = w_d / 2
+        w_b = w_d - D_b      ->  w_b + D_b = w_d = 2 (w_a + D_a)
+
+    The block is one period of the dressed storage mode, ``2*pi / (w_d/2)``
+    (two drive periods), as ``2*pi / w_a`` is in the uncompensated builders.
 
     Returns
     -------
@@ -445,24 +457,28 @@ def build_ats_hamiltonian_interaction_compensated_shift(
     V : numpy array
         Eigenbasis of the static Hamiltonian (frame transformation).
     T_block : float
-        Duration of one Floquet block, ``n_periods * 2*pi / w_a``.
+        Duration of one Floquet block, ``n_periods * 2*pi / (w_d/2)``.
     params : dict
         Derived quantities (``g``, ``g2``, ``kappa_1``, ``kappa_2``,
-        ``epsilon_d``, ``w_b``, ``T_drive``) for reference.
+        ``epsilon_d``, ``w_d``, ``T_drive``), the *bare* ``w_a``, ``w_b``
+        and the shifts ``D_a``, ``D_b``, for reference.
     """
+    # Everything but the mode frequencies is as on resonance, w_a = w_d / 2:
+    # couplings, rates, epsilon_d, and T_drive = 2*pi / (w_d/2).
+    Omega = w_d / 2
     params, T_block = _derived_params(
-        alpha_sq, w_a, kappa_b, E_J, phi_a, phi_b, epsilon_p, n_periods
+        alpha_sq, Omega, kappa_b, E_J, phi_a, phi_b, epsilon_p, n_periods
     )
     kappa_1 = params["kappa_1"]
     epsilon_d = params["epsilon_d"]
-    w_b = params["w_b"]
     g = params["g"]
 
-    Da = -g**2 / w_a * (100 * phi_a**4 + 135 * phi_a**2 * phi_b**2 + 46 * phi_b**4) / (15 * phi_a**2 * phi_b**2)
-    w_a_shift = w_a - Da
-
-    Db  = -g**2 / w_a * (135 * phi_a**4 + 324 * phi_a**2 * phi_b**2 + 100 * phi_b**4) / (30 * phi_a**4)
-    w_b_shift = w_b - Db
+    # second-order RWA shifts; bare = dressed - shift
+    Da = -g**2 / Omega * (100 * phi_a**4 + 135 * phi_a**2 * phi_b**2 + 46 * phi_b**4) / (15 * phi_a**2 * phi_b**2)
+    Db = -g**2 / Omega * (135 * phi_a**4 + 324 * phi_a**2 * phi_b**2 + 100 * phi_b**4) / (30 * phi_a**4)
+    w_a = Omega - Da
+    w_b = w_d - Db
+    params.update(w_a=w_a, w_b=w_b, D_a=Da, D_b=Db)
 
     a_tot, b_tot = _two_mode_operators(n_a, n_b)
 
@@ -472,8 +488,8 @@ def build_ats_hamiltonian_interaction_compensated_shift(
     non_linear_op = dq.cosm(phi_a_tot) @ dq.sinm(phi_b_tot) - phi_b_tot
 
     H_s = (
-        w_a_shift * dq.dag(a_tot) @ a_tot
-        + w_b_shift * dq.dag(b_tot) @ b_tot
+        w_a * dq.dag(a_tot) @ a_tot
+        + w_b * dq.dag(b_tot) @ b_tot
         - 2 * E_J * jnp.sin(epsilon_p) * non_linear_op
     )
 
@@ -497,7 +513,8 @@ def build_ats_hamiltonian_interaction_compensated_shift(
 
     def H_drive_I_fn(t):
         bt = b_tilde_fn(t)
-        return epsilon_d * jnp.cos(w_b * t) * (bt + dq.dag(bt))
+        # driven at w_d (the dressed buffer frequency), not at the bare w_b
+        return epsilon_d * jnp.cos(w_d * t) * (bt + dq.dag(bt))
 
     H_I = dq.timecallable(H_drive_I_fn)
     jump_ops_I = [jnp.sqrt(kappa_1) * a_tilde, jnp.sqrt(kappa_b) * b_tilde]
