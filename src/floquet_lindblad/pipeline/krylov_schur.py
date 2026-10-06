@@ -32,6 +32,7 @@ def solve_point_ks(
     n_a,
     n_b,
     kappa_b=None,
+    hamiltonian="interaction",
     # Krylov-Schur
     m=50,
     k=12,
@@ -68,8 +69,15 @@ def solve_point_ks(
     Parameters
     ----------
     kappa_b : float, optional
-        Buffer loss rate; the model default (``ats.KAPPA_B``) when omitted.
+        Buffer loss rate; the builder's default (``ats.KAPPA_B``) when omitted.
         The ``eps_p`` sweeps rescale it along the sweep.
+    hamiltonian : str or callable
+        Which Lindbladian to build: a key of ``ats.HAMILTONIANS`` (``"lab"``,
+        ``"rotating"``, ``"interaction"``, ``"parity_protected"``,
+        ``"compensated_shift"``), or a builder with the same keyword
+        signature. A builder returning ``(Ham, jump_ops, T_block, params)``
+        runs in its own (Fock) basis: no ``L^dag L`` operators, no output
+        phase, no frame rotation for the warm start or the Fock weights.
     n_blocks_final, n_blocks_auto, rq_resolution
         Length of the final Rayleigh-quotient block. Fixed at
         ``n_blocks_final`` by default; with ``n_blocks_auto`` it is shortened
@@ -82,7 +90,8 @@ def solve_point_ks(
         vector is rotated into this point's basis first. Both solvers
         vectorize column-major, so ``transform_vectorized_state`` applies
         unchanged. Without ``V_prev`` the vector is used as-is (an
-        ``alpha_sq`` sweep, where the basis does not move).
+        ``alpha_sq`` sweep, where the basis does not move, or a builder
+        without a frame transformation).
     want_x_ritz, want_V : bool
         Ship the Ritz vector / the eigenbasis back, which is what the next
         point of a warm chain needs. Off by default: they are the only large
@@ -101,11 +110,7 @@ def solve_point_ks(
 
     import jax
 
-    from floquet_lindblad.models.ats import (
-        KAPPA_B,
-        build_ats_hamiltonian_interaction,
-        transform_vectorized_state,
-    )
+    from floquet_lindblad.models.ats import HAMILTONIANS, transform_vectorized_state
     from floquet_lindblad.solvers.krylov_schur import KrylovSchurLindblad
 
     def py(v):
@@ -121,31 +126,32 @@ def solve_point_ks(
 
     t0 = time.time()
     dims = (n_a, n_b)
-    kappa_b = KAPPA_B if kappa_b is None else kappa_b
 
-    # --- interaction frame, ONE drive period per block: the iteration runs on U ---
-    (
-        H_I,
-        jump_ops_I,
-        jump_ops_LdL_I,
-        output_phase,
-        V,
-        T_block,
-        params,
-    ) = build_ats_hamiltonian_interaction(
+    # --- build the Lindbladian, ONE drive period per block: the iteration runs on U ---
+    if callable(hamiltonian):
+        builder, hamiltonian = hamiltonian, hamiltonian.__name__
+    else:
+        builder = HAMILTONIANS[hamiltonian]
+    built = builder(
         n_a=n_a,
         n_b=n_b,
         alpha_sq=alpha_sq,
-        kappa_b=kappa_b,
         epsilon_p=eps_p,
         n_periods=1,
+        **({} if kappa_b is None else {"kappa_b": kappa_b}),
     )
+    if len(built) == 7:  # interaction frame
+        H, jump_ops, jump_ops_LdL, output_phase, V, T_block, params = built
+    else:  # lab / rotating frame: the state lives in the Fock basis
+        H, jump_ops, T_block, params = built
+        jump_ops_LdL = output_phase = V = None
+    kappa_b = params["kappa_b"]
 
     solver = KrylovSchurLindblad(
-        H_I,
-        jump_ops_I,
+        H,
+        jump_ops,
         T_block,
-        jump_ops_LdL=jump_ops_LdL_I,
+        jump_ops_LdL=jump_ops_LdL,
         dims=dims,
         output_phase=output_phase,
         rtol=rtol_loop,
@@ -156,7 +162,7 @@ def solve_point_ks(
         x0 = solver.make_x0(seed=seed)
         warm_start = False
     else:
-        if V_prev is not None:
+        if V_prev is not None and V is not None:
             # The interaction-frame basis moves with eps_p, so a warm vector
             # from the previous point has to be rotated into this one.
             x0 = transform_vectorized_state(x0, np.asarray(V_prev), np.asarray(V))
@@ -223,9 +229,14 @@ def solve_point_ks(
     t_final = time.time() - t3
 
     # --- Fock weights, for the truncation check (lab frame, as in the other
-    # notebooks). Only the two marginals travel, not rho itself.
-    V = np.asarray(V)
-    rho_lab = V @ np.asarray(solver.unvec(x_ritz)) @ V.conj().T
+    # notebooks). Only the two marginals travel, not rho itself. Without a
+    # frame transformation rho is already in the Fock basis (the rotating
+    # frame differs from the lab one by Fock-diagonal phases, which leave the
+    # row norms below unchanged).
+    rho_lab = np.asarray(solver.unvec(x_ritz))
+    if V is not None:
+        V = np.asarray(V)
+        rho_lab = V @ rho_lab @ V.conj().T
     D = np.einsum("ij,ij->i", rho_lab, rho_lab.conj()).real.reshape(n_a, n_b)
     w_a = D.sum(axis=1) / D.sum()
     w_b = D.sum(axis=0) / D.sum()
@@ -235,6 +246,7 @@ def solve_point_ks(
         "alpha_sq": float(alpha_sq),
         "eps_p": float(eps_p),
         "kappa_b": float(kappa_b),
+        "hamiltonian": hamiltonian,
         "n_a": int(n_a),
         "n_b": int(n_b),
         "warm_start": bool(warm_start),
@@ -295,7 +307,9 @@ def solve_point_ks(
 
 
 #: Keys copied onto an `error_entry` so a failed point still says where it was.
-_COORD_KEYS = ("alpha_sq", "eps_p", "kappa_b", "n_a", "n_b", "m", "k", "res_tol")
+_COORD_KEYS = (
+    "alpha_sq", "eps_p", "kappa_b", "hamiltonian", "n_a", "n_b", "m", "k", "res_tol",
+)
 
 
 def solve_point_ks_safe(**kwargs):
