@@ -12,6 +12,15 @@ Three variants of the same driven, dissipative two-mode system (storage mode
   Hamiltonian; additionally returns the precomputed ``L^dag L`` jump operators
   (for ``dq.mesolve_fast``), the per-block ``output_phase`` and the frame
   transformation ``V``, pairing with the extended ``ChebAr`` solver.
+  ``parity_protected=True`` swaps the nonlinearity for
+  ``cos(phi_a) sin(phi_b)`` (:func:`build_ats_parity_protected_hamiltonian_interaction`).
+- :func:`build_ats_hamiltonian_interaction_detuned` — the same, driven at
+  ``w_d`` with the bare frequencies detuned by multiples of the second-order
+  RWA shifts; :func:`build_ats_hamiltonian_interaction_compensated_shift` is
+  its fully compensated case.
+
+All interaction-frame builders share :func:`_interaction_frame_ops`; they
+differ only in the mode and drive frequencies and in the nonlinearity.
 
 The physical constants below are the single source of truth for the default
 experimental parameters (Josephson energy, phases, frequencies); sweep scripts
@@ -219,54 +228,53 @@ def build_ats_hamiltonian_rotating(
     return Ham, jump_ops, T_block, params
 
 
-def build_ats_hamiltonian_interaction(
-    n_a=25,
-    n_b=11,
-    alpha_sq=4.25,
-    w_a=W_A,
-    kappa_b=KAPPA_B,
-    E_J=E_J,
-    phi_a=PHI_A,
-    phi_b=PHI_B,
-    epsilon_p=0.1,
-    n_periods=1,
-):
-    """Build the driven full-ATS Lindbladian in the interaction frame.
+def _nonlinear_op(phi_a_tot, phi_b_tot, parity_protected):
+    """The Josephson nonlinearity, minus its linear part.
 
-    Returns
-    -------
-    H_I : time-dependent dynamiqs operator
-        Driving part of the Hamiltonian.
-    jump_ops_I : list
-        Time-dependent Lindblad jump operators
-        ``[sqrt(kappa_1) a, sqrt(kappa_b) b]``.
-    jump_ops_LdL_I : list
-        Precomputed ``L^dag L`` operators, for ``dq.mesolve_fast`` (pass as
-        ``jump_ops_LdL`` to ``ChebAr``).
-    output_phase : jax array
-        Per-basis-state phase undoing the frame rotation after one block
-        (pass as ``output_phase`` to ``ChebAr``).
-    V : numpy array
-        Eigenbasis of the static Hamiltonian (frame transformation).
-    T_block : float
-        Duration of one Floquet block, ``n_periods * 2*pi / w_a``.
-    params : dict
-        Derived quantities (``g``, ``g2``, ``kappa_1``, ``kappa_2``,
-        ``epsilon_d``, ``w_b``, ``T_drive``) for reference.
+    ``sin(phi_a + phi_b) - phi_a - phi_b`` for the full ATS, or
+    ``cos(phi_a) sin(phi_b) - phi_b`` for the parity-protected variant.
     """
-    params, T_block = _derived_params(
-        alpha_sq, w_a, kappa_b, E_J, phi_a, phi_b, epsilon_p, n_periods
-    )
-    kappa_1 = params["kappa_1"]
-    epsilon_d = params["epsilon_d"]
-    w_b = params["w_b"]
+    if parity_protected:
+        return dq.cosm(phi_a_tot) @ dq.sinm(phi_b_tot) - phi_b_tot
+    return dq.sinm(phi_a_tot + phi_b_tot) - phi_a_tot - phi_b_tot
 
+
+def _rwa_shifts(g, Omega, phi_a, phi_b):
+    """Second-order RWA frequency shifts ``(D_a, D_b)`` of the two modes.
+
+    From ``notebooks/sympy_rwa_ats.ipynb``: the ``a^dag a`` and ``b^dag b``
+    coefficients of ``H^(2)`` for the cubic term of the **full-ATS**
+    nonlinearity ``sin(phi_a + phi_b)``, so they do not apply to the
+    parity-protected one. Both are negative.
+    """
+    D_a = -g**2 / Omega * (100 * phi_a**4 + 135 * phi_a**2 * phi_b**2 + 46 * phi_b**4) / (15 * phi_a**2 * phi_b**2)
+    D_b = -g**2 / Omega * (135 * phi_a**4 + 324 * phi_a**2 * phi_b**2 + 100 * phi_b**4) / (30 * phi_a**4)
+    return D_a, D_b
+
+
+def _interaction_frame_ops(
+    *, n_a, n_b, w_a, w_b, w_d, epsilon_d, kappa_1, kappa_b, E_J, phi_a, phi_b,
+    epsilon_p, T_block, parity_protected,
+):
+    """Operators shared by every interaction-frame builder.
+
+    Diagonalizes the static Hamiltonian
+
+        H_s = w_a a^dag a + w_b b^dag b - 2 E_J sin(epsilon_p) N(phi_a, phi_b)
+
+    (``N`` from :func:`_nonlinear_op`) and writes the drive
+    ``epsilon_d cos(w_d t) (b + b^dag)`` and the jump operators
+    ``[sqrt(kappa_1) a, sqrt(kappa_b) b]`` in its interaction frame.
+
+    Returns ``(H_I, jump_ops_I, jump_ops_LdL_I, output_phase, V)``; see
+    :func:`build_ats_hamiltonian_interaction`.
+    """
     a_tot, b_tot = _two_mode_operators(n_a, n_b)
 
     phi_a_tot = phi_a * (a_tot + dq.dag(a_tot))
     phi_b_tot = phi_b * (b_tot + dq.dag(b_tot))
 
-    non_linear_op = dq.sinm(phi_a_tot + phi_b_tot) - phi_a_tot - phi_b_tot
+    non_linear_op = _nonlinear_op(phi_a_tot, phi_b_tot, parity_protected)
 
     H_s = (
         w_a * dq.dag(a_tot) @ a_tot
@@ -294,226 +302,6 @@ def build_ats_hamiltonian_interaction(
 
     def H_drive_I_fn(t):
         bt = b_tilde_fn(t)
-        return epsilon_d * jnp.cos(w_b * t) * (bt + dq.dag(bt))
-
-    H_I = dq.timecallable(H_drive_I_fn)
-    jump_ops_I = [jnp.sqrt(kappa_1) * a_tilde, jnp.sqrt(kappa_b) * b_tilde]
-
-    a_dag_a_bar = a_bar.conj().T @ a_bar
-    b_dag_b_bar = b_bar.conj().T @ b_bar
-
-    def a_dag_a_tilde_fn(t):
-        return dq.asqarray(a_dag_a_bar * jnp.exp(1j * Delta * t), dims=(n_a, n_b))
-
-    def b_dag_b_tilde_fn(t):
-        return dq.asqarray(b_dag_b_bar * jnp.exp(1j * Delta * t), dims=(n_a, n_b))
-
-    a_dag_a_tilde = dq.timecallable(a_dag_a_tilde_fn)
-    b_dag_b_tilde = dq.timecallable(b_dag_b_tilde_fn)
-
-    jump_ops_LdL_I = [kappa_1 * a_dag_a_tilde, kappa_b * b_dag_b_tilde]
-
-    output_phase = jnp.exp(-1j * jnp.array(lam) * T_block)
-
-    return H_I, jump_ops_I, jump_ops_LdL_I, output_phase, V, T_block, params
-
-def build_ats_parity_protected_hamiltonian_interaction(
-    n_a=25,
-    n_b=11,
-    alpha_sq=4.25,
-    w_a=W_A,
-    kappa_b=KAPPA_B,
-    E_J=E_J,
-    phi_a=PHI_A,
-    phi_b=PHI_B,
-    epsilon_p=0.1,
-    n_periods=1,
-):
-    """Build the driven parity protected full-ATS Lindbladian in the interaction frame.
-
-    Returns
-    -------
-    H_I : time-dependent dynamiqs operator
-        Driving part of the Hamiltonian.
-    jump_ops_I : list
-        Time-dependent Lindblad jump operators
-        ``[sqrt(kappa_1) a, sqrt(kappa_b) b]``.
-    jump_ops_LdL_I : list
-        Precomputed ``L^dag L`` operators, for ``dq.mesolve_fast`` (pass as
-        ``jump_ops_LdL`` to ``ChebAr``).
-    output_phase : jax array
-        Per-basis-state phase undoing the frame rotation after one block
-        (pass as ``output_phase`` to ``ChebAr``).
-    V : numpy array
-        Eigenbasis of the static Hamiltonian (frame transformation).
-    T_block : float
-        Duration of one Floquet block, ``n_periods * 2*pi / w_a``.
-    params : dict
-        Derived quantities (``g``, ``g2``, ``kappa_1``, ``kappa_2``,
-        ``epsilon_d``, ``w_b``, ``T_drive``) for reference.
-    """
-    params, T_block = _derived_params(
-        alpha_sq, w_a, kappa_b, E_J, phi_a, phi_b, epsilon_p, n_periods
-    )
-    kappa_1 = params["kappa_1"]
-    epsilon_d = params["epsilon_d"]
-    w_b = params["w_b"]
-
-    a_tot, b_tot = _two_mode_operators(n_a, n_b)
-
-    phi_a_tot = phi_a * (a_tot + dq.dag(a_tot))
-    phi_b_tot = phi_b * (b_tot + dq.dag(b_tot))
-
-    non_linear_op = dq.cosm(phi_a_tot) @ dq.sinm(phi_b_tot) - phi_b_tot
-
-    H_s = (
-        w_a * dq.dag(a_tot) @ a_tot
-        + w_b * dq.dag(b_tot) @ b_tot
-        - 2 * E_J * jnp.sin(epsilon_p) * non_linear_op
-    )
-
-    Hs_mat = H_s.to_numpy()
-    Hs_mat = 0.5 * (Hs_mat + Hs_mat.conj().T)  # symmetrize numerically
-    lam, V = np.linalg.eigh(Hs_mat)  # H_s = V diag(lam) V^dag
-    Vd = V.conj().T
-
-    a_bar = jnp.array(Vd @ a_tot.to_numpy() @ V)  # fixed, built once
-    b_bar = jnp.array(Vd @ b_tot.to_numpy() @ V)
-    Delta = jnp.array(lam[:, None] - lam[None, :])  # fixed, built once
-
-    def a_tilde_fn(t):
-        return dq.asqarray(a_bar * jnp.exp(1j * Delta * t), dims=(n_a, n_b))
-
-    def b_tilde_fn(t):
-        return dq.asqarray(b_bar * jnp.exp(1j * Delta * t), dims=(n_a, n_b))
-
-    a_tilde = dq.timecallable(a_tilde_fn)
-    b_tilde = dq.timecallable(b_tilde_fn)
-
-    def H_drive_I_fn(t):
-        bt = b_tilde_fn(t)
-        return epsilon_d * jnp.cos(w_b * t) * (bt + dq.dag(bt))
-
-    H_I = dq.timecallable(H_drive_I_fn)
-    jump_ops_I = [jnp.sqrt(kappa_1) * a_tilde, jnp.sqrt(kappa_b) * b_tilde]
-
-    a_dag_a_bar = a_bar.conj().T @ a_bar
-    b_dag_b_bar = b_bar.conj().T @ b_bar
-
-    def a_dag_a_tilde_fn(t):
-        return dq.asqarray(a_dag_a_bar * jnp.exp(1j * Delta * t), dims=(n_a, n_b))
-
-    def b_dag_b_tilde_fn(t):
-        return dq.asqarray(b_dag_b_bar * jnp.exp(1j * Delta * t), dims=(n_a, n_b))
-
-    a_dag_a_tilde = dq.timecallable(a_dag_a_tilde_fn)
-    b_dag_b_tilde = dq.timecallable(b_dag_b_tilde_fn)
-
-    jump_ops_LdL_I = [kappa_1 * a_dag_a_tilde, kappa_b * b_dag_b_tilde]
-
-    output_phase = jnp.exp(-1j * jnp.array(lam) * T_block)
-
-    return H_I, jump_ops_I, jump_ops_LdL_I, output_phase, V, T_block, params
-
-
-def build_ats_hamiltonian_interaction_compensated_shift(
-    n_a=25,
-    n_b=11,
-    alpha_sq=4.25,
-    w_d=2*W_A,
-    kappa_b=KAPPA_B,
-    E_J=E_J,
-    phi_a=PHI_A,
-    phi_b=PHI_B,
-    epsilon_p=0.1,
-    n_periods=1,
-):
-    """Build the driven parity protected full-ATS Lindbladian in the interaction frame,
-    taking the shift of frequencies at RWA order 2 into account.
-
-    The drive frequency ``w_d`` is the input; the bare frequencies are
-    detuned by the second-order RWA shifts ``D_a``, ``D_b`` so that the
-    *dressed* ones are on resonance:
-
-        w_a = w_d / 2 - D_a  ->  w_a + D_a = w_d / 2
-        w_b = w_d - D_b      ->  w_b + D_b = w_d = 2 (w_a + D_a)
-
-    The block is one period of the dressed storage mode, ``2*pi / (w_d/2)``
-    (two drive periods), as ``2*pi / w_a`` is in the uncompensated builders.
-
-    Returns
-    -------
-    H_I : time-dependent dynamiqs operator
-        Driving part of the Hamiltonian.
-    jump_ops_I : list
-        Time-dependent Lindblad jump operators
-        ``[sqrt(kappa_1) a, sqrt(kappa_b) b]``.
-    jump_ops_LdL_I : list
-        Precomputed ``L^dag L`` operators, for ``dq.mesolve_fast`` (pass as
-        ``jump_ops_LdL`` to ``ChebAr``).
-    output_phase : jax array
-        Per-basis-state phase undoing the frame rotation after one block
-        (pass as ``output_phase`` to ``ChebAr``).
-    V : numpy array
-        Eigenbasis of the static Hamiltonian (frame transformation).
-    T_block : float
-        Duration of one Floquet block, ``n_periods * 2*pi / (w_d/2)``.
-    params : dict
-        Derived quantities (``g``, ``g2``, ``kappa_1``, ``kappa_2``,
-        ``epsilon_d``, ``w_d``, ``T_drive``), the *bare* ``w_a``, ``w_b``
-        and the shifts ``D_a``, ``D_b``, for reference.
-    """
-    # Everything but the mode frequencies is as on resonance, w_a = w_d / 2:
-    # couplings, rates, epsilon_d, and T_drive = 2*pi / (w_d/2).
-    Omega = w_d / 2
-    params, T_block = _derived_params(
-        alpha_sq, Omega, kappa_b, E_J, phi_a, phi_b, epsilon_p, n_periods
-    )
-    kappa_1 = params["kappa_1"]
-    epsilon_d = params["epsilon_d"]
-    g = params["g"]
-
-    # second-order RWA shifts; bare = dressed - shift
-    Da = -g**2 / Omega * (100 * phi_a**4 + 135 * phi_a**2 * phi_b**2 + 46 * phi_b**4) / (15 * phi_a**2 * phi_b**2)
-    Db = -g**2 / Omega * (135 * phi_a**4 + 324 * phi_a**2 * phi_b**2 + 100 * phi_b**4) / (30 * phi_a**4)
-    w_a = Omega - Da
-    w_b = w_d - Db
-    params.update(w_a=w_a, w_b=w_b, D_a=Da, D_b=Db)
-
-    a_tot, b_tot = _two_mode_operators(n_a, n_b)
-
-    phi_a_tot = phi_a * (a_tot + dq.dag(a_tot))
-    phi_b_tot = phi_b * (b_tot + dq.dag(b_tot))
-
-    non_linear_op = dq.cosm(phi_a_tot) @ dq.sinm(phi_b_tot) - phi_b_tot
-
-    H_s = (
-        w_a * dq.dag(a_tot) @ a_tot
-        + w_b * dq.dag(b_tot) @ b_tot
-        - 2 * E_J * jnp.sin(epsilon_p) * non_linear_op
-    )
-
-    Hs_mat = H_s.to_numpy()
-    Hs_mat = 0.5 * (Hs_mat + Hs_mat.conj().T)  # symmetrize numerically
-    lam, V = np.linalg.eigh(Hs_mat)  # H_s = V diag(lam) V^dag
-    Vd = V.conj().T
-
-    a_bar = jnp.array(Vd @ a_tot.to_numpy() @ V)  # fixed, built once
-    b_bar = jnp.array(Vd @ b_tot.to_numpy() @ V)
-    Delta = jnp.array(lam[:, None] - lam[None, :])  # fixed, built once
-
-    def a_tilde_fn(t):
-        return dq.asqarray(a_bar * jnp.exp(1j * Delta * t), dims=(n_a, n_b))
-
-    def b_tilde_fn(t):
-        return dq.asqarray(b_bar * jnp.exp(1j * Delta * t), dims=(n_a, n_b))
-
-    a_tilde = dq.timecallable(a_tilde_fn)
-    b_tilde = dq.timecallable(b_tilde_fn)
-
-    def H_drive_I_fn(t):
-        bt = b_tilde_fn(t)
-        # driven at w_d (the dressed buffer frequency), not at the bare w_b
         return epsilon_d * jnp.cos(w_d * t) * (bt + dq.dag(bt))
 
     H_I = dq.timecallable(H_drive_I_fn)
@@ -535,7 +323,152 @@ def build_ats_hamiltonian_interaction_compensated_shift(
 
     output_phase = jnp.exp(-1j * jnp.array(lam) * T_block)
 
-    return H_I, jump_ops_I, jump_ops_LdL_I, output_phase, V, T_block, params
+    return H_I, jump_ops_I, jump_ops_LdL_I, output_phase, V
+
+
+def build_ats_hamiltonian_interaction(
+    n_a=25,
+    n_b=11,
+    alpha_sq=4.25,
+    w_a=W_A,
+    kappa_b=KAPPA_B,
+    E_J=E_J,
+    phi_a=PHI_A,
+    phi_b=PHI_B,
+    epsilon_p=0.1,
+    n_periods=1,
+    parity_protected=False,
+):
+    """Build the driven full-ATS Lindbladian in the interaction frame.
+
+    Resonant: ``w_b = 2 w_a``, driven at ``w_b``. ``parity_protected``
+    switches the nonlinearity to ``cos(phi_a) sin(phi_b)`` (see
+    :func:`_nonlinear_op`).
+
+    Returns
+    -------
+    H_I : time-dependent dynamiqs operator
+        Driving part of the Hamiltonian.
+    jump_ops_I : list
+        Time-dependent Lindblad jump operators
+        ``[sqrt(kappa_1) a, sqrt(kappa_b) b]``.
+    jump_ops_LdL_I : list
+        Precomputed ``L^dag L`` operators, for ``dq.mesolve_fast`` (pass as
+        ``jump_ops_LdL`` to ``ChebAr``).
+    output_phase : jax array
+        Per-basis-state phase undoing the frame rotation after one block
+        (pass as ``output_phase`` to ``ChebAr``).
+    V : numpy array
+        Eigenbasis of the static Hamiltonian (frame transformation).
+    T_block : float
+        Duration of one Floquet block, ``n_periods * 2*pi / w_a``.
+    params : dict
+        Derived quantities (``g``, ``g2``, ``kappa_1``, ``kappa_2``,
+        ``epsilon_d``, ``w_b``, ``T_drive``) and ``parity_protected``, for
+        reference.
+    """
+    params, T_block = _derived_params(
+        alpha_sq, w_a, kappa_b, E_J, phi_a, phi_b, epsilon_p, n_periods
+    )
+    params["parity_protected"] = parity_protected
+    ops = _interaction_frame_ops(
+        n_a=n_a, n_b=n_b, w_a=w_a, w_b=params["w_b"], w_d=params["w_d"],
+        epsilon_d=params["epsilon_d"], kappa_1=params["kappa_1"], kappa_b=kappa_b,
+        E_J=E_J, phi_a=phi_a, phi_b=phi_b, epsilon_p=epsilon_p, T_block=T_block,
+        parity_protected=parity_protected,
+    )
+    return (*ops, T_block, params)
+
+
+def build_ats_parity_protected_hamiltonian_interaction(**kwargs):
+    """:func:`build_ats_hamiltonian_interaction` with ``parity_protected=True``."""
+    return build_ats_hamiltonian_interaction(parity_protected=True, **kwargs)
+
+
+def build_ats_hamiltonian_interaction_detuned(
+    n_a=25,
+    n_b=11,
+    alpha_sq=4.25,
+    w_d=2*W_A,
+    shift_a=1.0,
+    shift_b=1.0,
+    kappa_b=KAPPA_B,
+    E_J=E_J,
+    phi_a=PHI_A,
+    phi_b=PHI_B,
+    epsilon_p=0.1,
+    n_periods=1,
+):
+    """Build the driven full-ATS Lindbladian in the interaction frame, with the
+    bare frequencies detuned by multiples of the second-order RWA shifts.
+
+    The drive frequency ``w_d`` is the input; with ``D_a``, ``D_b`` from
+    :func:`_rwa_shifts`, the bare frequencies are
+
+        w_a = w_d / 2 - shift_a * D_a
+        w_b = w_d     - shift_b * D_b
+
+    ``shift_a = shift_b = 1`` puts the *dressed* frequencies on resonance
+    (:func:`build_ats_hamiltonian_interaction_compensated_shift`);
+    ``shift_a = shift_b = 0`` is :func:`build_ats_hamiltonian_interaction` at
+    ``w_a = w_d / 2``. The drive stays at ``w_d`` and the block at one period
+    of the dressed storage mode, ``n_periods * 2*pi / (w_d/2)``, whatever the
+    shifts. Full-ATS nonlinearity only: the shifts are not those of the
+    parity-protected one.
+
+    Returns
+    -------
+    Same 7-tuple as :func:`build_ats_hamiltonian_interaction`. ``params``
+    holds the *bare* ``w_a``, ``w_b``, the drive ``w_d``, ``D_a``, ``D_b``,
+    ``shift_a`` and ``shift_b``.
+    """
+    # Everything but the mode frequencies is as on resonance, w_a = w_d / 2:
+    # couplings, rates, epsilon_d, and T_drive = 2*pi / (w_d/2).
+    Omega = w_d / 2
+    params, T_block = _derived_params(
+        alpha_sq, Omega, kappa_b, E_J, phi_a, phi_b, epsilon_p, n_periods
+    )
+    D_a, D_b = _rwa_shifts(params["g"], Omega, phi_a, phi_b)
+    w_a = Omega - shift_a * D_a
+    w_b = w_d - shift_b * D_b
+    params.update(w_a=w_a, w_b=w_b, D_a=D_a, D_b=D_b, shift_a=shift_a,
+                  shift_b=shift_b, parity_protected=False)
+    ops = _interaction_frame_ops(
+        n_a=n_a, n_b=n_b, w_a=w_a, w_b=w_b, w_d=w_d,
+        epsilon_d=params["epsilon_d"], kappa_1=params["kappa_1"], kappa_b=kappa_b,
+        E_J=E_J, phi_a=phi_a, phi_b=phi_b, epsilon_p=epsilon_p, T_block=T_block,
+        parity_protected=False,
+    )
+    return (*ops, T_block, params)
+
+
+def build_ats_hamiltonian_interaction_compensated_shift(
+    n_a=25,
+    n_b=11,
+    alpha_sq=4.25,
+    w_d=2*W_A,
+    kappa_b=KAPPA_B,
+    E_J=E_J,
+    phi_a=PHI_A,
+    phi_b=PHI_B,
+    epsilon_p=0.1,
+    n_periods=1,
+):
+    """Build the driven full-ATS Lindbladian in the interaction frame,
+    taking the shift of frequencies at RWA order 2 into account.
+
+    :func:`build_ats_hamiltonian_interaction_detuned` at
+    ``shift_a = shift_b = 1``: the bare frequencies are detuned by the
+    second-order RWA shifts so that the *dressed* ones are on resonance,
+
+        w_a = w_d / 2 - D_a  ->  w_a + D_a = w_d / 2
+        w_b = w_d - D_b      ->  w_b + D_b = w_d = 2 (w_a + D_a)
+    """
+    return build_ats_hamiltonian_interaction_detuned(
+        n_a=n_a, n_b=n_b, alpha_sq=alpha_sq, w_d=w_d, shift_a=1.0, shift_b=1.0,
+        kappa_b=kappa_b, E_J=E_J, phi_a=phi_a, phi_b=phi_b,
+        epsilon_p=epsilon_p, n_periods=n_periods,
+    )
 
 
 def _fock_frame(builder):

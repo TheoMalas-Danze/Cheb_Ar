@@ -89,6 +89,25 @@ numerically symmetrized and diagonalized once (`numpy.linalg.eigh`), giving
 
 Returns `(H_I, jump_ops_I, jump_ops_LdL_I, output_phase, V, T_block, params)`.
 
+### Interaction-frame variants
+
+The construction above is one private function, `_interaction_frame_ops`;
+the interaction-frame builders differ only in the frequencies and the
+nonlinearity they pass to it (`params["parity_protected"]` records which):
+
+| Builder | Bare `w_a` / `w_b` | Drive | Nonlinearity | Registry key |
+|---|---|---|---|---|
+| `build_ats_hamiltonian_interaction` | `w_a` / `2 w_a` | `w_b` | `sin(phi_a + phi_b)` (`parity_protected=False`) | `interaction` |
+| `build_ats_parity_protected_hamiltonian_interaction` | `w_a` / `2 w_a` | `w_b` | `cos(phi_a) sin(phi_b)` | `parity_protected` |
+| `build_ats_hamiltonian_interaction_detuned` | `w_d/2 - shift_a D_a` / `w_d - shift_b D_b` | `w_d` | `sin(phi_a + phi_b)` | — |
+| `build_ats_hamiltonian_interaction_compensated_shift` | `w_d/2 - D_a` / `w_d - D_b` (detuned at `1, 1`) | `w_d` | `sin(phi_a + phi_b)` | `compensated_shift` |
+
+`D_a`, `D_b` (`_rwa_shifts`) are the second-order RWA shifts of the
+`sin(phi_a + phi_b)` nonlinearity (`notebooks/sympy_rwa_ats.ipynb`), so the
+detuned builders do not take `parity_protected`. The detuned block is
+`2*pi / (w_d/2)` whatever the shifts; at `shift_a = shift_b = 0` the detuned
+builder is the plain one at `w_a = w_d / 2`.
+
 ## 4. `transform_vectorized_state(x_vec, V_from, V_to)`
 
 Re-expresses a column-major (`order="F"`) vectorized operator written in

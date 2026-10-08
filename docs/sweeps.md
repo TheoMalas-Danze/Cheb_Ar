@@ -102,6 +102,8 @@ The same sweeps, run from a notebook with `acr.run` and plotted locally.
 | `sweep_alpha.ipynb` | Krylov-Schur | fan-out; truncation and tolerances follow a ladder in `alpha_sq`; perturbative comparison |
 | `sweep_eps_p.ipynb` | Krylov-Schur | warm-started chain; adiabatic-ratio and warm-start checks |
 | `sweep_alpha_eps_p.ipynb` | Krylov-Schur | `alpha_sq` chains fanned out, each a warm `eps_p` chain; run twice at two truncations as a convergence check |
+| `sweep_w_a_detuned.ipynb` | Krylov-Schur | fan-out over the bare memory frequency `w_a` in `[w_d/2 - 2 D_a, w_d/2]` (buffer at `w_d`), `build_ats_hamiltonian_interaction_detuned`; compared with `compensated_shift` |
+| `sweep_w_a_detuned_alpha.ipynb` | Krylov-Schur | the same sweep at `alpha_sq` = 2..6, one `alpha_sq` per job run one after the other, truncation/tolerances from the `alpha_sq` ladder; saved per `alpha_sq`, resumable |
 | `legacy_cheb_ar/sweep_alpha.ipynb`, `legacy_cheb_ar/sweep_eps_p.ipynb` | ChebAr | the pre-Krylov-Schur forms of the first two |
 
 The notebook client cannot import `floquet_lindblad` (it pulls in jax and
